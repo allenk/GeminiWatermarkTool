@@ -44,7 +44,7 @@ Download the latest release from the [Releases](https://github.com/allenk/Gemini
 
 ### Simplest Usage (Drag & Drop)
 
-1. Download `GeminiWatermarkTool.exe`
+1. Download `GeminiWatermarkTool[version].zip`
 2. Drag an image file onto the executable
 3. Done! The watermark is removed in-place
 
@@ -132,22 +132,6 @@ The tool automatically detects the appropriate watermark size based on image dim
 | 1920 × 1080 | Large (96×96) |
 
 Use `--force-small` or `--force-large` to override automatic detection.
-
-## How It Works
-
-Gemini adds watermarks using **alpha blending**:
-
-```
-watermarked = α × logo + (1 - α) × original
-```
-
-This tool reverses the operation:
-
-```
-original = (watermarked - α × logo) / (1 - α)
-```
-
-The alpha values are pre-calculated from Gemini's watermark pattern, enabling mathematically accurate restoration with minimal artifacts.
 
 ## Examples
 
