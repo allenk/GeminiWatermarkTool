@@ -36,6 +36,9 @@ jobs:
         cmake --preset windows-x64-Release
         cmake --build --preset windows-x64-Release
 
+    - name: Test binary
+      run: ./out/build/windows-x64-Release/GeminiWatermarkTool.exe --version
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
@@ -63,6 +66,9 @@ jobs:
       run: |
         cmake --preset linux-x64-Release
         cmake --build --preset linux-x64-Release
+
+    - name: Test binary
+      run: ./out/build/linux-x64-Release/GeminiWatermarkTool --version
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -109,6 +115,9 @@ jobs:
       run: |
         lipo -create build-x64/GeminiWatermarkTool build-arm64/GeminiWatermarkTool -output GeminiWatermarkTool
         strip GeminiWatermarkTool
+
+    - name: Test binary
+      run: ./GeminiWatermarkTool --version
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4

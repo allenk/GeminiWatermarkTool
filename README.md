@@ -166,6 +166,13 @@ GeminiWatermarkTool -i ./gemini_outputs/ -o ./processed/
 # See detailed processing information
 GeminiWatermarkTool -i image.jpg -o output.jpg -v
 ```
+### Pre-built Binaries
+
+| Platform | Requirements |
+|----------|--------------|
+| Windows | Windows 10/11 x64 |
+| Linux | x64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) |
+| macOS | macOS 11.0+ (Intel or Apple Silicon) |
 
 ## System Requirements
 
