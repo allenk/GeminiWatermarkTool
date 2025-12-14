@@ -1,0 +1,143 @@
+# =============================================================================
+# Gemini Watermark Tool - Cross-Platform CI
+# =============================================================================
+name: Build
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  # ===========================================================================
+  # Windows Build
+  # ===========================================================================
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: '594ad8871e1e8e45f8e626c015fd611163430207'
+
+    - name: Configure & Build
+      run: |
+        cmake --preset windows-x64-Release
+        cmake --build --preset windows-x64-Release
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: GeminiWatermarkTool-Windows-x64
+        path: out/build/windows-x64-Release/GeminiWatermarkTool.exe
+
+  # ===========================================================================
+  # Linux Build
+  # ===========================================================================
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: '594ad8871e1e8e45f8e626c015fd611163430207'
+
+    - name: Configure & Build
+      run: |
+        cmake --preset linux-x64-Release
+        cmake --build --preset linux-x64-Release
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: GeminiWatermarkTool-Linux-x64
+        path: out/build/linux-x64-Release/GeminiWatermarkTool
+
+  # ===========================================================================
+  # macOS Build (Universal Binary)
+  # ===========================================================================
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: brew install ninja
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: '594ad8871e1e8e45f8e626c015fd611163430207'
+
+    - name: Build x64
+      run: |
+        cmake -B build-x64 -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
+          -DVCPKG_TARGET_TRIPLET=x64-osx \
+          -DCMAKE_OSX_ARCHITECTURES=x86_64
+        cmake --build build-x64
+
+    - name: Build arm64
+      run: |
+        cmake -B build-arm64 -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
+          -DVCPKG_TARGET_TRIPLET=arm64-osx \
+          -DCMAKE_OSX_ARCHITECTURES=arm64
+        cmake --build build-arm64
+
+    - name: Create Universal Binary
+      run: |
+        lipo -create build-x64/GeminiWatermarkTool build-arm64/GeminiWatermarkTool -output GeminiWatermarkTool
+        strip GeminiWatermarkTool
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: GeminiWatermarkTool-macOS-Universal
+        path: GeminiWatermarkTool
+
+  # ===========================================================================
+  # Release (on tag push)
+  # ===========================================================================
+  release:
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Prepare release files
+      run: |
+        mv GeminiWatermarkTool-Windows-x64/GeminiWatermarkTool.exe GeminiWatermarkTool-Windows-x64.exe
+        mv GeminiWatermarkTool-Linux-x64/GeminiWatermarkTool GeminiWatermarkTool-Linux-x64
+        mv GeminiWatermarkTool-macOS-Universal/GeminiWatermarkTool GeminiWatermarkTool-macOS-Universal
+        chmod +x GeminiWatermarkTool-Linux-x64 GeminiWatermarkTool-macOS-Universal
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          GeminiWatermarkTool-Windows-x64.exe
+          GeminiWatermarkTool-Linux-x64
+          GeminiWatermarkTool-macOS-Universal
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

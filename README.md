@@ -243,15 +243,15 @@ cmake --list-presets
 #### Windows
 
 ```powershell
-cmake --preset windows-x64-Release-Standalone
-cmake --build --preset windows-x64-Release-Standalone
+cmake --preset windows-x64-Release
+cmake --build --preset windows-x64-Release
 ```
 
 #### Linux
 
 ```bash
-cmake --preset linux-x64-Release-Standalone
-cmake --build --preset linux-x64-Release-Standalone
+cmake --preset linux-x64-Release
+cmake --build --preset linux-x64-Release
 ```
 
 #### macOS (Universal Binary)
@@ -264,8 +264,7 @@ cmake -B build-x64 -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
   -DVCPKG_TARGET_TRIPLET=x64-osx \
-  -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-  -DSTANDALONE_MODE=ON
+  -DCMAKE_OSX_ARCHITECTURES=x86_64
 cmake --build build-x64
 
 # Build arm64
@@ -273,8 +272,7 @@ cmake -B build-arm64 -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
   -DVCPKG_TARGET_TRIPLET=arm64-osx \
-  -DCMAKE_OSX_ARCHITECTURES=arm64 \
-  -DSTANDALONE_MODE=ON
+  -DCMAKE_OSX_ARCHITECTURES=arm64
 cmake --build build-arm64
 
 # Create Universal Binary
@@ -289,8 +287,8 @@ Requires Android NDK:
 ```bash
 export ANDROID_NDK_HOME="/path/to/android-ndk"
 
-cmake --preset android-arm64-Release-Standalone
-cmake --build --preset android-arm64-Release-Standalone
+cmake --preset android-arm64-Release
+cmake --build --preset android-arm64-Release
 ```
 
 ### Build Presets
@@ -298,17 +296,8 @@ cmake --build --preset android-arm64-Release-Standalone
 | Preset | Platform | Mode |
 |--------|----------|------|
 | `windows-x64-Release` | Windows | Normal |
-| `windows-x64-Release-Standalone` | Windows | Standalone |
 | `linux-x64-Release` | Linux | Normal |
-| `linux-x64-Release-Standalone` | Linux | Standalone |
-| `android-arm64-Release-Standalone` | Android | Standalone |
-
-### Build Modes
-
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| **Normal** | Requires `assets/` folder at runtime | Development |
-| **Standalone** | Assets embedded in binary | Distribution |
+| `android-arm64-Release` | Android | Normal |
 
 ### Manual Build (without presets)
 
@@ -316,8 +305,7 @@ cmake --build --preset android-arm64-Release-Standalone
 cmake -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
-  -DVCPKG_TARGET_TRIPLET=x64-linux \
-  -DSTANDALONE_MODE=ON
+  -DVCPKG_TARGET_TRIPLET=x64-linux
 
 cmake --build build
 ```
