@@ -132,20 +132,32 @@ jobs:
       run: find . -type f
     - name: Prepare release files
       run: |
-        # Rename with proper extensions
-        cp GeminiWatermarkTool-Windows-x64/GeminiWatermarkTool.exe ./GeminiWatermarkTool-Windows-x64.exe
-        cp GeminiWatermarkTool-Linux-x64/GeminiWatermarkTool ./GeminiWatermarkTool-Linux-x64
-        cp GeminiWatermarkTool-macOS-Universal/GeminiWatermarkTool ./GeminiWatermarkTool-macOS-Universal
-        chmod +x GeminiWatermarkTool-Linux-x64 GeminiWatermarkTool-macOS-Universal
+        # Windows
+        cp GeminiWatermarkTool-Windows-x64/GeminiWatermarkTool.exe ./GeminiWatermarkTool.exe
+        zip GeminiWatermarkTool-Windows-x64.zip GeminiWatermarkTool.exe
+        rm GeminiWatermarkTool.exe
+
+        # Linux
+        cp GeminiWatermarkTool-Linux-x64/GeminiWatermarkTool ./GeminiWatermarkTool
+        chmod +x GeminiWatermarkTool
+        zip GeminiWatermarkTool-Linux-x64.zip GeminiWatermarkTool
+        rm GeminiWatermarkTool
+
+        # macOS
+        cp GeminiWatermarkTool-macOS-Universal/GeminiWatermarkTool ./GeminiWatermarkTool
+        chmod +x GeminiWatermarkTool
+        zip GeminiWatermarkTool-macOS-Universal.zip GeminiWatermarkTool
+        rm GeminiWatermarkTool
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          GeminiWatermarkTool-Windows-x64.exe
-          GeminiWatermarkTool-Linux-x64
-          GeminiWatermarkTool-macOS-Universal
+          GeminiWatermarkTool-Windows-x64.zip
+          GeminiWatermarkTool-Linux-x64.zip
+          GeminiWatermarkTool-macOS-Universal.zip
         draft: false
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
