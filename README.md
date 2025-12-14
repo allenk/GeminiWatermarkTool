@@ -24,6 +24,8 @@ Download the latest release from the [Releases](https://github.com/allenk/Gemini
 | File | Description |
 |------|-------------|
 | `GeminiWatermarkTool.exe` | Windows x64 executable (standalone) |
+| `GeminiWatermarkTool` | Linux x64 executable |
+| `GeminiWatermarkTool` | macOS executable (Intel x64 / Apple Silicon ARM64) |
 
 ## ⚠️ Disclaimer
 
@@ -38,18 +40,135 @@ Download the latest release from the [Releases](https://github.com/allenk/Gemini
 >
 > The author assumes no responsibility for any data loss, image corruption, or unintended modifications. By using this tool, you acknowledge that you understand these risks.
 
+## Building from Source
+
+This project uses CMake for building. You can use either system package managers or vcpkg to install dependencies.
+
+### Prerequisites
+
+- CMake 3.20 or higher
+- C++20 compatible compiler (GCC 10+, Clang 12+, or MSVC 2019+)
+
+### Option 1: Using System Package Managers (Recommended for Linux/macOS)
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt-get update
+sudo apt-get install -y cmake build-essential libopencv-dev libfmt-dev libspdlog-dev
+```
+
+**Linux (Fedora/RHEL):**
+```bash
+sudo dnf install cmake gcc-c++ opencv-devel fmt-devel spdlog-devel
+```
+
+**macOS (using Homebrew):**
+```bash
+brew install cmake opencv fmt spdlog
+```
+
+**Note:** Homebrew automatically installs the correct architecture version (Intel x64 or Apple Silicon ARM64) based on your Mac.
+
+**Note:**
+- CLI11 is header-only and will be automatically downloaded by CMake if not found in the system
+- If `fmt` or `spdlog` are not found with CONFIG mode, CMake will try MODULE mode (works with most system packages)
+
+Then build without vcpkg:
+```bash
+# Linux/macOS
+cmake -B build -S .
+cmake --build build --config Release
+```
+
+### Option 2: Using vcpkg (Cross-platform, Recommended for Windows)
+
+**Note:** This step is only needed if you don't have vcpkg installed yet. If you already have vcpkg set up, you can skip to the "Build Instructions" section.
+
+```bash
+# Clone vcpkg (if not already installed)
+git clone https://github.com/Microsoft/vcpkg.git
+cd vcpkg
+
+# Bootstrap vcpkg (only needed once during initial setup)
+# Windows
+.\bootstrap-vcpkg.bat
+
+# Linux/macOS
+./bootstrap-vcpkg.sh
+```
+
+After bootstrapping, remember the path to vcpkg (e.g., `/path/to/vcpkg`) as you'll need it for the CMake toolchain file.
+
+### Build Instructions with vcpkg
+
+Replace `[path to vcpkg]` with your actual vcpkg installation path (e.g., `~/vcpkg` or `C:\vcpkg`).
+
+**Windows:**
+```bash
+# Configure
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[path to vcpkg]/scripts/buildsystems/vcpkg.cmake
+
+# Build
+cmake --build build --config Release
+
+# The executable will be at: build/Release/GeminiWatermarkTool.exe
+```
+
+**Linux/macOS (with vcpkg):**
+```bash
+# Configure
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=[path to vcpkg]/scripts/buildsystems/vcpkg.cmake
+
+# Build
+cmake --build build --config Release
+
+# The executable will be at: build/GeminiWatermarkTool
+```
+
+**macOS Architecture Notes:**
+- CMake automatically detects your Mac's architecture (Intel x64 or Apple Silicon ARM64)
+- On Apple Silicon Macs, it will build for ARM64 by default
+- On Intel Macs, it will build for x86_64 by default
+- To build a universal binary (both architectures), add: `-DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"`
+
+### Quick Build Summary
+
+**For Linux/macOS users:** Use system package managers (Option 1) - simpler and faster, no vcpkg needed.
+
+**For Windows users:** Use vcpkg (Option 2) - recommended for easier dependency management.
+
+**Note:** After the first build, you only need to run the `cmake --build` command for subsequent builds. The `cmake -B build -S .` configuration step is only needed when:
+- Building for the first time
+- Changing CMake configuration
+- Adding/removing source files
+
+### Dependencies
+
+The following dependencies are automatically managed by vcpkg:
+- OpenCV 4 (with JPEG, PNG, WebP support)
+- fmt
+- CLI11
+- spdlog
+
 ## Quick Start
 
 <img src="artworks/app_ico.png" alt="App Icon" width="256" height="256">
 
-### Simplest Usage (Drag & Drop)
+### Simplest Usage
 
+**Windows (Drag & Drop):**
 1. Download `GeminiWatermarkTool[version].zip`
 2. Drag an image file onto the executable
 3. Done! The watermark is removed in-place
 
+**Linux/macOS (Command Line):**
+```bash
+./GeminiWatermarkTool image.jpg
+```
+
 ### Command Line
 
+**Windows:**
 ```bash
 # Simple mode - edit file in-place
 GeminiWatermarkTool.exe watermarked.jpg
@@ -61,6 +180,18 @@ GeminiWatermarkTool.exe -i watermarked.jpg -o clean.jpg
 GeminiWatermarkTool.exe -i ./input_folder/ -o ./output_folder/
 ```
 
+**Linux/macOS:**
+```bash
+# Simple mode - edit file in-place
+./GeminiWatermarkTool watermarked.jpg
+
+# Specify output file
+./GeminiWatermarkTool -i watermarked.jpg -o clean.jpg
+
+# Batch processing
+./GeminiWatermarkTool -i ./input_folder/ -o ./output_folder/
+```
+
 ## Usage
 
 ### Simple Mode (Recommended)
@@ -68,7 +199,11 @@ GeminiWatermarkTool.exe -i ./input_folder/ -o ./output_folder/
 The easiest way to use this tool - just provide a single image path:
 
 ```bash
+# Windows
 GeminiWatermarkTool.exe image.jpg
+
+# Linux/macOS
+./GeminiWatermarkTool image.jpg
 ```
 
 This will **remove the watermark in-place**, overwriting the original file.
@@ -80,11 +215,14 @@ This will **remove the watermark in-place**, overwriting the original file.
 For more control, use the `-i` (input) and `-o` (output) options:
 
 ```bash
-# Single file
+# Windows
 GeminiWatermarkTool.exe -i input.jpg -o output.jpg
 
+# Linux/macOS
+./GeminiWatermarkTool -i input.jpg -o output.jpg
+
 # With explicit --remove flag (optional)
-GeminiWatermarkTool.exe -i input.jpg -o output.jpg --remove
+./GeminiWatermarkTool -i input.jpg -o output.jpg --remove
 ```
 
 ### Batch Processing
@@ -92,7 +230,11 @@ GeminiWatermarkTool.exe -i input.jpg -o output.jpg --remove
 Process all images in a directory:
 
 ```bash
+# Windows
 GeminiWatermarkTool.exe -i ./watermarked_images/ -o ./clean_images/
+
+# Linux/macOS
+./GeminiWatermarkTool -i ./watermarked_images/ -o ./clean_images/
 ```
 
 Supported formats: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`
@@ -138,35 +280,50 @@ Use `--force-small` or `--force-large` to override automatic detection.
 ### Example 1: Quick Edit
 
 ```bash
-# Just remove the watermark, keep the same filename
+# Windows
 GeminiWatermarkTool.exe photo_from_gemini.jpg
+
+# Linux/macOS
+./GeminiWatermarkTool photo_from_gemini.jpg
 ```
 
 ### Example 2: Preserve Original
 
 ```bash
-# Save to a new file, keeping the original intact
+# Windows
 GeminiWatermarkTool.exe -i original.jpg -o cleaned.jpg
+
+# Linux/macOS
+./GeminiWatermarkTool -i original.jpg -o cleaned.jpg
 ```
 
 ### Example 3: Process Multiple Files
 
 ```bash
-# Process all images in a folder
+# Windows
 GeminiWatermarkTool.exe -i ./gemini_outputs/ -o ./processed/
+
+# Linux/macOS
+./GeminiWatermarkTool -i ./gemini_outputs/ -o ./processed/
 ```
 
 ### Example 4: Verbose Mode
 
 ```bash
-# See detailed processing information
+# Windows
 GeminiWatermarkTool.exe -i image.jpg -o output.jpg -v
+
+# Linux/macOS
+./GeminiWatermarkTool -i image.jpg -o output.jpg -v
 ```
 
 ## System Requirements
 
-- **OS**: Windows 10 / 11 (x64)
-- **Runtime**: None required (statically linked)
+- **OS**: 
+  - Windows 10 / 11 (x64)
+  - Linux (x64)
+  - macOS 10.15+ (Intel x64 / Apple Silicon ARM64)
+- **Runtime**: None required (statically linked on Windows)
 - **Disk**: ~15 MB
 
 ## Troubleshooting
@@ -180,7 +337,11 @@ The watermark is semi-transparent. If the original background was similar to the
 Use `--force-small` or `--force-large` to manually specify:
 
 ```bash
+# Windows
 GeminiWatermarkTool.exe -i image.jpg -o output.jpg --force-small
+
+# Linux/macOS
+./GeminiWatermarkTool -i image.jpg -o output.jpg --force-small
 ```
 
 ### "File access denied"
