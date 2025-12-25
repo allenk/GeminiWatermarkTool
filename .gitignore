@@ -5,6 +5,7 @@ cmake-build-*/
 x64/
 Debug/
 Release/
+GeminiWatermarkTool
 
 # Visual Studio
 .vs/

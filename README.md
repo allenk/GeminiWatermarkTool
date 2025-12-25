@@ -273,6 +273,10 @@ Make sure the output path is writable and the file isn't open in another program
 
 ## Building from Source
 
+> 📚 **Platform-Specific Guides**:
+> - **macOS**: See [macOS Installation Guide](docs/mac-install-en.md) ([中文版](docs/mac-install-zh.md)) for Homebrew-based installation
+> - **Windows/Linux**: Follow the instructions below
+
 ### Prerequisites
 
 | Tool | Version | Notes |
@@ -322,6 +326,10 @@ cmake --build --preset linux-x64-Release
 ```
 
 #### macOS (Universal Binary)
+
+> 📖 **Detailed Guide**: For step-by-step instructions including Homebrew-based installation, see:
+> - [macOS Installation Guide (English)](docs/mac-install-en.md)
+> - [macOS 安装指南 (中文)](docs/mac-install-zh.md)
 
 macOS requires separate builds for each architecture:
 
