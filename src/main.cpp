@@ -93,20 +93,21 @@ void print_banner() {
     fmt::print("\n");
 }
 
-// Check if running in simple mode: just a single file argument
+// Check if running in simple mode: one or more file arguments without flags
 bool is_simple_mode(int argc, char** argv) {
-    if (argc == 2) {
-        std::string arg = argv[1];
-        // Not a flag (doesn't start with -)
-        if (!arg.empty() && arg[0] != '-') {
-            return true;
+    if (argc < 2) return false;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        // If any argument starts with '-', it's not simple mode
+        if (!arg.empty() && arg[0] == '-') {
+            return false;
         }
     }
-    return false;
+    return true;
 }
 
-// Simple mode: process single file in-place
-int run_simple_mode(const std::string& filepath) {
+// Simple mode: process one or more files in-place
+int run_simple_mode(int argc, char** argv) {
     setup_console();
     print_banner();
 
@@ -115,18 +116,8 @@ int run_simple_mode(const std::string& filepath) {
     spdlog::set_default_logger(logger);
     spdlog::set_level(spdlog::level::info);
 
-    fs::path input(filepath);
-
-    // Validate input
-    if (!fs::exists(input)) {
-        spdlog::error("File not found: {}", filepath);
-        return 1;
-    }
-
-    if (fs::is_directory(input)) {
-        spdlog::error("For directory processing, use: {} -i <dir> -o <dir>", "GeminiWatermarkTool");
-        return 1;
-    }
+    int success_count = 0;
+    int fail_count = 0;
 
     try {
         // Initialize engine with embedded assets
@@ -135,15 +126,39 @@ int run_simple_mode(const std::string& filepath) {
             gwt::embedded::bg_96_png, gwt::embedded::bg_96_png_size
         );
 
-        spdlog::info("Processing: {} (in-place)", input.filename().string());
+        for (int i = 1; i < argc; ++i) {
+            fs::path input(argv[i]);
 
-        // Process in-place (input == output), no force_size
-        if (gwt::process_image(input, input, true, engine, std::nullopt)) {
-            fmt::print(fmt::fg(fmt::color::green), "[OK] Success: {}\n", input.string());
-            return 0;
-        } else {
-            return 1;
+            // Validate input
+            if (!fs::exists(input)) {
+                spdlog::error("File not found: {}", argv[i]);
+                fail_count++;
+                continue;
+            }
+
+            if (fs::is_directory(input)) {
+                spdlog::error("Skipping directory: {} (For directory processing, use -i <dir> -o <dir>)", argv[i]);
+                fail_count++;
+                continue;
+            }
+
+            spdlog::info("Processing: {}", input.filename().string());
+
+            // Process in-place (input == output), no force_size
+            if (gwt::process_image(input, input, true, engine, std::nullopt)) {
+                success_count++;
+            } else {
+                fail_count++;
+            }
         }
+
+        fmt::print(fmt::fg(fmt::color::green), "\n[OK] Completed: {} succeeded", success_count);
+        if (fail_count > 0) {
+            fmt::print(fmt::fg(fmt::color::red), ", {} failed", fail_count);
+        }
+        fmt::print("\n");
+
+        return (fail_count > 0) ? 1 : 0;
 
     } catch (const std::exception& e) {
         spdlog::error("Fatal error: {}", e.what());
@@ -154,7 +169,7 @@ int run_simple_mode(const std::string& filepath) {
 int main(int argc, char** argv) {
     // Check for simple mode first (before CLI parsing)
     if (is_simple_mode(argc, argv)) {
-        return run_simple_mode(argv[1]);
+        return run_simple_mode(argc, argv);
     }
     setup_console();
 
