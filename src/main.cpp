@@ -93,20 +93,51 @@ void print_banner() {
     fmt::print("\n");
 }
 
-// Check if running in simple mode: just a single file argument
+// Check if running in simple mode: one or more file arguments without flags
 bool is_simple_mode(int argc, char** argv) {
-    if (argc == 2) {
-        std::string arg = argv[1];
-        // Not a flag (doesn't start with -)
-        if (!arg.empty() && arg[0] != '-') {
-            return true;
+    if (argc < 2) return false;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        // If any argument starts with '-', it's not simple mode
+        if (!arg.empty() && arg[0] == '-') {
+            return false;
         }
     }
-    return false;
+    return true;
 }
 
-// Simple mode: process single file in-place
-int run_simple_mode(const std::string& filepath) {
+struct ProcessResult {
+    int success = 0;
+    int fail = 0;
+
+    void print() const {
+        if (success + fail > 1) {
+            fmt::print(fmt::fg(fmt::color::green), "\n[OK] Completed: {} succeeded", success);
+            if (fail > 0) {
+                fmt::print(fmt::fg(fmt::color::red), ", {} failed", fail);
+            }
+            fmt::print("\n");
+        }
+    }
+};
+
+void process_single(
+    const fs::path& input,
+    const fs::path& output,
+    bool remove,
+    gwt::WatermarkEngine& engine,
+    std::optional<gwt::WatermarkSize> force_size,
+    ProcessResult& result
+) {
+    if (gwt::process_image(input, output, remove, engine, force_size)) {
+        result.success++;
+    } else {
+        result.fail++;
+    }
+}
+
+// Simple mode: process one or more files in-place
+int run_simple_mode(int argc, char** argv) {
     setup_console();
     print_banner();
 
@@ -115,18 +146,7 @@ int run_simple_mode(const std::string& filepath) {
     spdlog::set_default_logger(logger);
     spdlog::set_level(spdlog::level::info);
 
-    fs::path input(filepath);
-
-    // Validate input
-    if (!fs::exists(input)) {
-        spdlog::error("File not found: {}", filepath);
-        return 1;
-    }
-
-    if (fs::is_directory(input)) {
-        spdlog::error("For directory processing, use: {} -i <dir> -o <dir>", "GeminiWatermarkTool");
-        return 1;
-    }
+    ProcessResult result;
 
     try {
         // Initialize engine with embedded assets
@@ -135,16 +155,28 @@ int run_simple_mode(const std::string& filepath) {
             gwt::embedded::bg_96_png, gwt::embedded::bg_96_png_size
         );
 
-        spdlog::info("Processing: {} (in-place)", input.filename().string());
+        for (int i = 1; i < argc; ++i) {
+            fs::path input(argv[i]);
 
-        // Process in-place (input == output), no force_size
-        if (gwt::process_image(input, input, true, engine, std::nullopt)) {
-            fmt::print(fmt::fg(fmt::color::green), "[OK] Success: {}\n", input.string());
-            return 0;
-        } else {
-            return 1;
+            // Validate input
+            if (!fs::exists(input)) {
+                spdlog::error("File not found: {}", argv[i]);
+                result.fail++;
+                continue;
+            }
+
+            if (fs::is_directory(input)) {
+                spdlog::error("Skipping directory: {} (For directory processing, use -i <dir> -o <dir>)", argv[i]);
+                result.fail++;
+                continue;
+            }
+
+            spdlog::info("Processing: {}", input.filename().string());
+            process_single(input, input, true, engine, std::nullopt, result);
         }
 
+        result.print();
+        return (result.fail > 0) ? 1 : 0;
     } catch (const std::exception& e) {
         spdlog::error("Fatal error: {}", e.what());
         return 1;
@@ -154,7 +186,7 @@ int run_simple_mode(const std::string& filepath) {
 int main(int argc, char** argv) {
     // Check for simple mode first (before CLI parsing)
     if (is_simple_mode(argc, argv)) {
-        return run_simple_mode(argv[1]);
+        return run_simple_mode(argc, argv);
     }
     setup_console();
 
@@ -240,8 +272,7 @@ int main(int argc, char** argv) {
         fs::path input(input_path);
         fs::path output(output_path);
 
-        int success_count = 0;
-        int fail_count = 0;
+        ProcessResult result;
 
         if (fs::is_directory(input)) {
             // Batch processing
@@ -264,33 +295,16 @@ int main(int argc, char** argv) {
                 }
 
                 fs::path out_file = output / entry.path().filename();
-
-                // Pass force_size to process_image
-                if (gwt::process_image(entry.path(), out_file, remove_mode, engine, force_size)) {
-                    success_count++;
-                } else {
-                    fail_count++;
-                }
+                process_single(entry.path(), out_file, remove_mode, engine, force_size, result);
             }
 
-            fmt::print(fmt::fg(fmt::color::green), "\n[OK] Completed: {} succeeded", success_count);
-            if (fail_count > 0) {
-                fmt::print(fmt::fg(fmt::color::red), ", {} failed", fail_count);
-            }
-            fmt::print("\n");
-
+            result.print();
         } else {
-            // Single file processing - pass force_size
-            if (gwt::process_image(input, output, remove_mode, engine, force_size)) {
-                success_count = 1;
-                fmt::print(fmt::fg(fmt::color::green), "[OK] Success: {}\n", output.string());
-            } else {
-                fail_count = 1;
-            }
+            // Single file processing
+            process_single(input, output, remove_mode, engine, force_size, result);
         }
 
-        return (fail_count > 0) ? 1 : 0;
-
+        return (result.fail > 0) ? 1 : 0;
     } catch (const std::exception& e) {
         spdlog::error("Fatal error: {}", e.what());
         return 1;
