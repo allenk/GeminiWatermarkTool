@@ -129,9 +129,99 @@ WatermarkEngine::WatermarkEngine(
     spdlog::info("Loaded embedded background captures (standalone mode)");
 }
 
+double WatermarkEngine::detect_watermark(
+    const cv::Mat& image,
+    std::optional<WatermarkSize> force_size) {
+    if (image.empty()) return 0.0;
+
+    const WatermarkSize size = force_size.value_or(get_watermark_size(image.cols, image.rows));
+    const WatermarkPosition config = get_watermark_config(image.cols, image.rows);
+    const cv::Point pos = config.get_position(image.cols, image.rows);
+    const cv::Mat& alpha_map = get_alpha_map(size);
+
+    const int x1 = std::max(0, pos.x);
+    const int y1 = std::max(0, pos.y);
+    const int x2 = std::min(image.cols, pos.x + alpha_map.cols);
+    const int y2 = std::min(image.rows, pos.y + alpha_map.rows);
+
+    if (x1 >= x2 || y1 >= y2) return 0.0;
+
+    const cv::Rect image_roi(x1, y1, x2 - x1, y2 - y1);
+    const cv::Mat region = image(image_roi);
+    cv::Mat gray_region;
+    if (region.channels() >= 3) {
+        cv::cvtColor(region, gray_region, cv::COLOR_BGR2GRAY);
+    } else {
+        gray_region = region.clone();
+    }
+
+    // Stage 1: Spatial Structural Correlation (NCC)
+    cv::Mat gray_f, alpha_region;
+    gray_region.convertTo(gray_f, CV_32F, 1.0 / 255.0);
+    const cv::Rect alpha_roi(x1 - pos.x, y1 - pos.y, x2 - x1, y2 - y1);
+    alpha_region = alpha_map(alpha_roi);
+
+    cv::Mat spatial_match;
+    cv::matchTemplate(gray_f, alpha_region, spatial_match, cv::TM_CCOEFF_NORMED);
+    double min_spatial, spatial_score;
+    cv::minMaxLoc(spatial_match, &min_spatial, &spatial_score);
+
+    // Circuit Breaker: Mandatory structural alignment
+    if (spatial_score < 0.25) {
+        return 0.0;
+    }
+
+    // Stage 2: Gradient-Domain Correlation (Edge Signature)
+    cv::Mat img_gx, img_gy, img_gmag;
+    cv::Sobel(gray_f, img_gx, CV_32F, 1, 0, 3);
+    cv::Sobel(gray_f, img_gy, CV_32F, 0, 1, 3);
+    cv::magnitude(img_gx, img_gy, img_gmag);
+
+    cv::Mat alpha_gx, alpha_gy, alpha_gmag;
+    cv::Sobel(alpha_region, alpha_gx, CV_32F, 1, 0, 3);
+    cv::Sobel(alpha_region, alpha_gy, CV_32F, 0, 1, 3);
+    cv::magnitude(alpha_gx, alpha_gy, alpha_gmag);
+
+    cv::Mat grad_match;
+    cv::matchTemplate(img_gmag, alpha_gmag, grad_match, cv::TM_CCOEFF_NORMED);
+    double min_grad, grad_score;
+    cv::minMaxLoc(grad_match, &min_grad, &grad_score);
+
+    // Stage 3: Statistical Variance Analysis (Texture Dampening)
+    double var_score = 0.0;
+    const int ref_h = std::min(y1, config.logo_size);
+    if (ref_h > 8) {
+        const cv::Rect ref_roi(x1, y1 - ref_h, x2 - x1, ref_h);
+        const cv::Mat ref_region = image(ref_roi);
+        cv::Mat gray_ref;
+        if (ref_region.channels() >= 3) {
+            cv::cvtColor(ref_region, gray_ref, cv::COLOR_BGR2GRAY);
+        } else {
+            gray_ref = ref_region;
+        }
+
+        cv::Scalar m_wm, s_wm, m_ref, s_ref;
+        cv::meanStdDev(gray_region, m_wm, s_wm);
+        cv::meanStdDev(gray_ref, m_ref, s_ref);
+
+        if (s_ref[0] > 5.0) {
+            // Watermarks dampen high-frequency background variance
+            var_score = std::clamp(1.0 - (s_wm[0] / s_ref[0]), 0.0, 1.0);
+        }
+    }
+
+    // Heuristic Fusion: Weighted Ensemble
+    const double confidence = (spatial_score * 0.5) + (grad_score * 0.3) + (var_score * 0.2);
+    spdlog::debug("Detection: spatial={:.3f}, grad={:.3f}, var={:.3f} -> conf={:.3f}",
+                  spatial_score, grad_score, var_score, confidence);
+
+    return std::clamp(confidence, 0.0, 1.0);
+}
+
 void WatermarkEngine::remove_watermark(
     cv::Mat& image,
-    std::optional<WatermarkSize> force_size) {
+    std::optional<WatermarkSize> force_size,
+    bool unsafe) {
     if (image.empty()) {
         throw std::runtime_error("Empty image provided");
     }
@@ -143,21 +233,15 @@ void WatermarkEngine::remove_watermark(
         cv::cvtColor(image, image, cv::COLOR_GRAY2BGR);
     }
 
-    // Determine watermark size
-    WatermarkSize size = force_size.value_or(
-        get_watermark_size(image.cols, image.rows)
-    );
-
-    // Get position config based on actual size used
-    WatermarkPosition config;
-    if (size == WatermarkSize::Small) {
-        config = WatermarkPosition{32, 32, 48};
-    } else {
-        config = WatermarkPosition{64, 64, 96};
-    }
-
-    cv::Point pos = config.get_position(image.cols, image.rows);
+    const WatermarkSize size = force_size.value_or(get_watermark_size(image.cols, image.rows));
+    const WatermarkPosition config = get_watermark_config(image.cols, image.rows);
+    const cv::Point pos = config.get_position(image.cols, image.rows);
     cv::Mat& alpha_map = get_alpha_map(size);
+
+    if (!unsafe && detect_watermark(image, force_size) < 0.30) {
+        spdlog::info("No watermark detected, skipping removal.");
+        return;
+    }
 
     spdlog::debug("Removing watermark at ({}, {}) with {}x{} alpha map (size: {})",
                   pos.x, pos.y, alpha_map.cols, alpha_map.rows,
@@ -215,7 +299,8 @@ bool process_image(
     const std::filesystem::path& output_path,
     bool remove,
     WatermarkEngine& engine,
-    std::optional<WatermarkSize> force_size) {
+    std::optional<WatermarkSize> force_size,
+    bool unsafe) {
     try {
         // Read image
         cv::Mat image = cv::imread(input_path.string(), cv::IMREAD_COLOR);
@@ -230,7 +315,7 @@ bool process_image(
 
         // Process with force_size parameter
         if (remove) {
-            engine.remove_watermark(image, force_size);
+            engine.remove_watermark(image, force_size, unsafe);
         } else {
             engine.add_watermark(image, force_size);
         }

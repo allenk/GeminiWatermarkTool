@@ -98,6 +98,19 @@ public:
      */
     void remove_watermark(
         cv::Mat& image,
+        std::optional<WatermarkSize> force_size = std::nullopt,
+        bool unsafe = false
+    );
+
+    /**
+     * Calculate confidence score of watermark presence
+     *
+     * @param image     The image to check
+     * @param size      Watermark size to check for
+     * @return          Confidence score (0.0 to 1.0)
+     */
+    double detect_watermark(
+        const cv::Mat& image,
         std::optional<WatermarkSize> force_size = std::nullopt
     );
 
@@ -137,7 +150,8 @@ bool process_image(
     const std::filesystem::path& output_path,
     bool remove,
     WatermarkEngine& engine,
-    std::optional<WatermarkSize> force_size = std::nullopt
+    std::optional<WatermarkSize> force_size = std::nullopt,
+    bool unsafe = false
 );
 
 } // namespace gwt

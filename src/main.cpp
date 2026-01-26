@@ -128,9 +128,10 @@ void process_single(
     bool remove,
     gwt::WatermarkEngine& engine,
     std::optional<gwt::WatermarkSize> force_size,
+    bool unsafe,
     ProcessResult& result
 ) {
-    if (gwt::process_image(input, output, remove, engine, force_size)) {
+    if (gwt::process_image(input, output, remove, engine, force_size, unsafe)) {
         result.success++;
     } else {
         result.fail++;
@@ -173,7 +174,7 @@ int run_simple_mode(int argc, char** argv) {
             }
 
             spdlog::info("Processing: {}", input.filename());
-            process_single(input, input, true, engine, std::nullopt, result);
+            process_single(input, input, true, engine, std::nullopt, false, result);
         }
 
         result.print();
@@ -214,6 +215,10 @@ int main(int argc, char** argv) {
     // Standalone mode: remove only, flag is optional (default to remove)
     app.add_flag("--remove,-r", remove_mode,
         "Remove watermark from image (default)");
+
+    bool unsafe = false;
+    app.add_flag("--unsafe", unsafe,
+        "Skip watermark detection and force removal");
 
     // Force specific watermark size
     bool force_small = false;
@@ -296,13 +301,13 @@ int main(int argc, char** argv) {
                 }
 
                 fs::path out_file = output / entry.path().filename();
-                process_single(entry.path(), out_file, remove_mode, engine, force_size, result);
+                process_single(entry.path(), out_file, remove_mode, engine, force_size, unsafe, result);
             }
 
             result.print();
         } else {
             // Single file processing
-            process_single(input, output, remove_mode, engine, force_size, result);
+            process_single(input, output, remove_mode, engine, force_size, unsafe, result);
         }
 
         return (result.fail > 0) ? 1 : 0;
