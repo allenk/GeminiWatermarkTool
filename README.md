@@ -104,6 +104,65 @@ Download the latest release from the [Releases](https://github.com/allenk/Gemini
 | macOS | `GeminiWatermarkTool-macOS-Universal` | Intel + Apple Silicon |
 | Android | `GeminiWatermarkTool-Android-arm64` | ARM64 |
 
+## Mac Terminal Installation
+
+Install seamlessly on macOS with a single command:
+
+### Option 1: Quick Install (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/allenk/GeminiWatermarkTool/main/scripts/install.sh | bash
+```
+
+This will:
+- Download the latest universal binary (Intel + Apple Silicon)
+- Install to `/usr/local/bin/unmark`
+- Handle macOS Gatekeeper automatically
+
+After installation, use it anywhere in terminal:
+
+```bash
+unmark image.jpg                    # Remove watermark in-place
+unmark -i input.jpg -o output.jpg   # Specify output
+unmark -i ./folder/ -o ./clean/     # Batch process
+```
+
+### Option 2: Homebrew
+
+```bash
+brew tap allenk/tap
+brew install unmark
+```
+
+### Option 3: Manual Installation
+
+```bash
+# Download the latest release
+curl -LO https://github.com/allenk/GeminiWatermarkTool/releases/latest/download/GeminiWatermarkTool-macOS-Universal.zip
+
+# Unzip and install
+unzip GeminiWatermarkTool-macOS-Universal.zip
+chmod +x GeminiWatermarkTool
+sudo mv GeminiWatermarkTool /usr/local/bin/unmark
+
+# Remove quarantine (fixes "cannot be opened" error)
+sudo xattr -d com.apple.quarantine /usr/local/bin/unmark
+```
+
+### Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/allenk/GeminiWatermarkTool/main/scripts/install.sh | bash -s -- --uninstall
+```
+
+Or with Homebrew: `brew uninstall unmark`
+
+## Linux Terminal Installation
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/allenk/GeminiWatermarkTool/main/scripts/install.sh | bash
+```
+
 ## ⚠️ Disclaimer
 
 > **USE AT YOUR OWN RISK**
