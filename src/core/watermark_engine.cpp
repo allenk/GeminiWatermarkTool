@@ -11,9 +11,9 @@
  * @see https://github.com/allenk/GeminiWatermarkTool
  */
 
-#include "watermark_engine.hpp"
-#include "blend_modes.hpp"
-#include "path_formatter.hpp"
+#include "core/watermark_engine.hpp"
+#include "core/blend_modes.hpp"
+#include "utils/path_formatter.hpp"
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>

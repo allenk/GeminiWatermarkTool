@@ -1,35 +1,19 @@
- /**
-  * @file    main.cpp
-  * @brief   Gemini Watermark Tool - CLI Entry Point
-  * @author  AllenK (Kwyshell)
-  * @date    2025.12.13
-  * @license MIT
-  *
-  * @details
-  * A command-line tool to add/remove Gemini-style visible watermarks from images.
-  *
-  * Watermark Mechanism:
-  *   Gemini adds watermarks using blending and overlay techniques;
-  *     we designed a reverse operation to eliminate them and mitigate this effect
-  *
-  *   To remove watermark (reverse blending)
-  *
-  * Build Modes:
-  *   - Normal:     Requires external asset files, supports both add/remove
-  *   - Standalone: Assets embedded in binary, remove-only, single .exe distribution
-  *
-  * Usage:
-  *   GeminiWatermarkTool image.jpg                            (standalone: in-place)
-  *   GeminiWatermarkTool -i input.jpg -o output.jpg --remove
-  *   GeminiWatermarkTool -i input.jpg -o output.jpg --add     (normal mode only)
-  *
-  * @see https://github.com/allenk/GeminiWatermarkTool
-  */
+/**
+ * @file    cli_app.cpp
+ * @brief   CLI Application Implementation
+ * @author  AllenK (Kwyshell)
+ * @license MIT
+ *
+ * @details
+ * Command-line interface for Gemini Watermark Tool.
+ * Supports single file processing, batch processing, and drag & drop.
+ */
 
-#include "watermark_engine.hpp"
-#include "ascii_logo.hpp"
+#include "cli/cli_app.hpp"
+#include "core/watermark_engine.hpp"
+#include "utils/ascii_logo.hpp"
+#include "utils/path_formatter.hpp"
 #include "embedded_assets.hpp"
-#include "path_formatter.hpp"
 
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
@@ -38,33 +22,26 @@
 #include <fmt/color.h>
 
 #include <filesystem>
-#include <iostream>
 #include <algorithm>
 #include <string>
-#include <cstdlib>
 
-// =============================================================================
-// Platform-specific includes
-// =============================================================================
 #ifdef _WIN32
     #include <windows.h>
 #endif
 
 namespace fs = std::filesystem;
 
+namespace gwt::cli {
+
+namespace {
+
 // =============================================================================
 // Platform-specific console setup
 // =============================================================================
 
-/**
- * Setup console for proper UTF-8 and ANSI color support
- */
 void setup_console() {
 #ifdef _WIN32
-    // Set console output to UTF-8
     SetConsoleOutputCP(CP_UTF8);
-
-    // Enable ANSI escape sequences for colors (Windows 10+)
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hOut != INVALID_HANDLE_VALUE) {
         DWORD dwMode = 0;
@@ -74,12 +51,12 @@ void setup_console() {
         }
     }
 #endif
-    // Unix-like systems (Linux, macOS) support ANSI by default
 }
 
 // =============================================================================
 // Logo and Banner printing
 // =============================================================================
+
 void print_logo() {
     fmt::print(fmt::fg(fmt::color::cyan), "{}", gwt::ASCII_COMPACT);
     fmt::print(fmt::fg(fmt::color::yellow), "  [Standalone Edition]");
@@ -94,18 +71,9 @@ void print_banner() {
     fmt::print("\n");
 }
 
-// Check if running in simple mode: one or more file arguments without flags
-bool is_simple_mode(int argc, char** argv) {
-    if (argc < 2) return false;
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        // If any argument starts with '-', it's not simple mode
-        if (!arg.empty() && arg[0] == '-') {
-            return false;
-        }
-    }
-    return true;
-}
+// =============================================================================
+// Processing helpers
+// =============================================================================
 
 struct ProcessResult {
     int success = 0;
@@ -126,23 +94,38 @@ void process_single(
     const fs::path& input,
     const fs::path& output,
     bool remove,
-    gwt::WatermarkEngine& engine,
-    std::optional<gwt::WatermarkSize> force_size,
+    WatermarkEngine& engine,
+    std::optional<WatermarkSize> force_size,
     ProcessResult& result
 ) {
-    if (gwt::process_image(input, output, remove, engine, force_size)) {
+    if (process_image(input, output, remove, engine, force_size)) {
         result.success++;
     } else {
         result.fail++;
     }
 }
 
-// Simple mode: process one or more files in-place
+}  // anonymous namespace
+
+// =============================================================================
+// Public API
+// =============================================================================
+
+bool is_simple_mode(int argc, char** argv) {
+    if (argc < 2) return false;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (!arg.empty() && arg[0] == '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
 int run_simple_mode(int argc, char** argv) {
     setup_console();
     print_banner();
 
-    // Configure logging
     auto logger = spdlog::stdout_color_mt("gwt");
     spdlog::set_default_logger(logger);
     spdlog::set_level(spdlog::level::info);
@@ -150,16 +133,14 @@ int run_simple_mode(int argc, char** argv) {
     ProcessResult result;
 
     try {
-        // Initialize engine with embedded assets
-        gwt::WatermarkEngine engine(
-            gwt::embedded::bg_48_png, gwt::embedded::bg_48_png_size,
-            gwt::embedded::bg_96_png, gwt::embedded::bg_96_png_size
+        WatermarkEngine engine(
+            embedded::bg_48_png, embedded::bg_48_png_size,
+            embedded::bg_96_png, embedded::bg_96_png_size
         );
 
         for (int i = 1; i < argc; ++i) {
             fs::path input(argv[i]);
 
-            // Validate input
             if (!fs::exists(input)) {
                 spdlog::error("File not found: {}", argv[i]);
                 result.fail++;
@@ -184,11 +165,12 @@ int run_simple_mode(int argc, char** argv) {
     }
 }
 
-int main(int argc, char** argv) {
-    // Check for simple mode first (before CLI parsing)
+int run(int argc, char** argv) {
+    // Check for simple mode first
     if (is_simple_mode(argc, argv)) {
         return run_simple_mode(argc, argv);
     }
+
     setup_console();
 
     CLI::App app{"Gemini Watermark Tool (Standalone) - Remove visible watermarks"};
@@ -210,24 +192,17 @@ int main(int argc, char** argv) {
 
     // Operation mode
     bool remove_mode = false;
-
-    // Standalone mode: remove only, flag is optional (default to remove)
-    app.add_flag("--remove,-r", remove_mode,
-        "Remove watermark from image (default)");
+    app.add_flag("--remove,-r", remove_mode, "Remove watermark from image (default)");
 
     // Force specific watermark size
     bool force_small = false;
     bool force_large = false;
-
-    app.add_flag("--force-small", force_small,
-        "Force use of 48x48 watermark regardless of image size");
-    app.add_flag("--force-large", force_large,
-        "Force use of 96x96 watermark regardless of image size");
+    app.add_flag("--force-small", force_small, "Force use of 48x48 watermark regardless of image size");
+    app.add_flag("--force-large", force_large, "Force use of 96x96 watermark regardless of image size");
 
     // Verbosity
     bool verbose = false;
     bool quiet = false;
-
     app.add_flag("-v,--verbose", verbose, "Enable verbose output");
     app.add_flag("-q,--quiet", quiet, "Suppress all output except errors");
 
@@ -250,33 +225,30 @@ int main(int argc, char** argv) {
     }
 
     // Determine force size option
-    std::optional<gwt::WatermarkSize> force_size;
+    std::optional<WatermarkSize> force_size;
     if (force_small && force_large) {
         spdlog::error("Cannot specify both --force-small and --force-large");
         return 1;
     } else if (force_small) {
-        force_size = gwt::WatermarkSize::Small;
+        force_size = WatermarkSize::Small;
         spdlog::info("Forcing 48x48 watermark size");
     } else if (force_large) {
-        force_size = gwt::WatermarkSize::Large;
+        force_size = WatermarkSize::Large;
         spdlog::info("Forcing 96x96 watermark size");
     }
 
     try {
-        // Initialize engine with embedded assets
-        gwt::WatermarkEngine engine(
-            gwt::embedded::bg_48_png, gwt::embedded::bg_48_png_size,
-            gwt::embedded::bg_96_png, gwt::embedded::bg_96_png_size
+        WatermarkEngine engine(
+            embedded::bg_48_png, embedded::bg_48_png_size,
+            embedded::bg_96_png, embedded::bg_96_png_size
         );
 
-        // Check if it's a single file or directory
         fs::path input(input_path);
         fs::path output(output_path);
 
         ProcessResult result;
 
         if (fs::is_directory(input)) {
-            // Batch processing
             if (!fs::exists(output)) {
                 fs::create_directories(output);
             }
@@ -287,7 +259,6 @@ int main(int argc, char** argv) {
                 if (!entry.is_regular_file()) continue;
 
                 std::string ext = entry.path().extension().string();
-                // Convert to lowercase for comparison
                 std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
                 if (ext != ".jpg" && ext != ".jpeg" && ext != ".png" &&
@@ -301,7 +272,6 @@ int main(int argc, char** argv) {
 
             result.print();
         } else {
-            // Single file processing
             process_single(input, output, remove_mode, engine, force_size, result);
         }
 
@@ -312,3 +282,4 @@ int main(int argc, char** argv) {
     }
 }
 
+}  // namespace gwt::cli

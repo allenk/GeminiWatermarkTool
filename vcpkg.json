@@ -1,6 +1,6 @@
 {
   "name": "gemini-watermark-tool",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "A tool to add/remove Gemini-style visible watermarks using reverse alpha blending",
   "homepage": "https://github.com/allenk/GeminiWatermarkTool",
   "license": "MIT",
@@ -15,6 +15,35 @@
     "cli11",
     "spdlog"
   ],
+  "features": {
+    "gui": {
+      "description": "Build with ImGui GUI support (OpenGL backend)",
+      "supports": "!android",
+      "dependencies": [
+        {
+          "name": "imgui",
+          "default-features": false,
+          "features": [ "sdl3-binding", "opengl3-binding", "freetype" ]
+        },
+        "sdl3",
+        "implot",
+        "glad",
+        "nativefiledialog-extended"
+      ]
+    },
+    "vulkan": {
+      "description": "Add Vulkan backend support (requires gui feature)",
+      "dependencies": [
+        {
+          "name": "imgui",
+          "default-features": false,
+          "features": [ "vulkan-binding" ]
+        },
+        "vulkan",
+        "vulkan-memory-allocator"
+      ]
+    }
+  },
   "overrides": [],
   "builtin-baseline": "7e19f3c64cb636ee21f41bfe8558a6dfaae6236f"
 }

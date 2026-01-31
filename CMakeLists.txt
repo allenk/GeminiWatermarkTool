@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.20)
-project(GeminiWatermarkTool VERSION 0.1.2 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.21)
+project(GeminiWatermarkTool VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,6 +8,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # =============================================================================
 # Build Options
 # =============================================================================
+option(BUILD_GUI "Build with ImGui GUI support" OFF)
+option(ENABLE_VULKAN "Enable Vulkan backend (requires BUILD_GUI)" OFF)
+
+# Validate options
+if(ENABLE_VULKAN AND NOT BUILD_GUI)
+    message(FATAL_ERROR "ENABLE_VULKAN requires BUILD_GUI=ON")
+endif()
 
 # =============================================================================
 # Application Metadata
@@ -64,6 +71,11 @@ if(WIN32)
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /GL /Gy")
         set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /OPT:REF /OPT:ICF")
     endif()
+
+    # GUI: Use WIN32 subsystem (no console window)
+    #if(BUILD_GUI)
+    #    set(WIN32_EXECUTABLE WIN32)
+    #endif()
 endif()
 
 # =============================================================================
@@ -140,39 +152,143 @@ find_package(fmt CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 
+# GUI Dependencies
+if(BUILD_GUI)
+    find_package(imgui CONFIG REQUIRED)
+    find_package(SDL3 CONFIG REQUIRED)
+    find_package(implot CONFIG REQUIRED)
+    find_package(OpenGL REQUIRED)
+    find_package(glad CONFIG REQUIRED)
+    find_package(nfd CONFIG REQUIRED)
+
+    if(ENABLE_VULKAN)
+        find_package(Vulkan REQUIRED)
+        find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+    endif()
+endif()
+# =============================================================================
+# Source Files
+# =============================================================================
+
+# Core sources (always built)
+set(CORE_SOURCES
+    src/core/watermark_engine.cpp
+    src/core/blend_modes.cpp
+)
+
+set(CORE_HEADERS
+    src/core/watermark_engine.hpp
+    src/core/blend_modes.hpp
+    src/core/types.hpp
+)
+
+# CLI sources (always built)
+set(CLI_SOURCES
+    src/cli/cli_app.cpp
+)
+
+set(CLI_HEADERS
+    src/cli/cli_app.hpp
+)
+
+# Utils headers
+set(UTILS_HEADERS
+    src/utils/ascii_logo.hpp
+    src/utils/path_formatter.hpp
+)
+
+# Main entry point
+set(MAIN_SOURCE
+    src/main.cpp
+)
+
+# GUI sources (conditional)
+if(BUILD_GUI)
+    set(GUI_SOURCES
+        src/gui/gui_app.cpp
+        src/gui/app/app_controller.cpp
+        src/gui/widgets/main_window.cpp
+        src/gui/widgets/image_preview.cpp
+        src/gui/backend/render_backend.cpp
+        src/gui/backend/opengl_backend.cpp
+    )
+
+    set(GUI_HEADERS
+        src/gui/gui_app.hpp
+        src/gui/app/app_state.hpp
+        src/gui/app/app_controller.hpp
+        src/gui/widgets/main_window.hpp
+        src/gui/widgets/image_preview.hpp
+        src/gui/backend/render_backend.hpp
+        src/gui/backend/opengl_backend.hpp
+        src/gui/resources/style.hpp
+    )
+
+    if(ENABLE_VULKAN)
+        list(APPEND GUI_SOURCES
+            src/gui/backend/vulkan_backend.cpp
+        )
+        list(APPEND GUI_HEADERS
+            src/gui/backend/vulkan_backend.hpp
+        )
+    endif()
+endif()
+
 # =============================================================================
 # Main Executable
 # =============================================================================
-set(SOURCES
-    src/main.cpp
-    src/watermark_engine.cpp
-    src/blend_modes.cpp
+add_executable(${PROJECT_NAME} ${WIN32_EXECUTABLE}
+    ${MAIN_SOURCE}
+    ${CORE_SOURCES}
+    ${CORE_HEADERS}
+    ${CLI_SOURCES}
+    ${CLI_HEADERS}
+    ${UTILS_HEADERS}
+    ${WIN_RESOURCE_FILE}
 )
 
-set(HEADERS
-    src/watermark_engine.hpp
-    src/blend_modes.hpp
-    src/ascii_logo.hpp
-    src/path_formatter.hpp
-)
+if(BUILD_GUI)
+    target_sources(${PROJECT_NAME} PRIVATE
+        ${GUI_SOURCES}
+        ${GUI_HEADERS}
+    )
+endif()
 
-add_executable(${PROJECT_NAME}
-    ${SOURCES}
-    ${HEADERS}
-    ${WIN_RESOURCE_FILE}  # Windows icon + version info (empty on non-Windows)
-)
-
+# =============================================================================
+# Include Directories
+# =============================================================================
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/assets
 )
 
+# =============================================================================
+# Link Libraries
+# =============================================================================
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${OpenCV_LIBS}
     fmt::fmt
     CLI11::CLI11
     spdlog::spdlog
 )
+
+if(BUILD_GUI)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        imgui::imgui
+        $<IF:$<TARGET_EXISTS:SDL3::SDL3-static>,SDL3::SDL3-static,SDL3::SDL3>
+        implot::implot
+        OpenGL::GL
+        glad::glad
+        nfd::nfd
+    )
+
+    if(ENABLE_VULKAN)
+        target_link_libraries(${PROJECT_NAME} PRIVATE
+            Vulkan::Vulkan
+            GPUOpen::VulkanMemoryAllocator
+        )
+    endif()
+endif()
 
 # macOS framework linking
 if(APPLE AND COREFOUNDATION_LIBRARY)
@@ -185,9 +301,10 @@ endif()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     APP_VERSION="${PROJECT_VERSION}"
     APP_NAME="${PROJECT_NAME}"
+    $<$<BOOL:${BUILD_GUI}>:GWT_HAS_GUI=1>
+    $<$<BOOL:${ENABLE_VULKAN}>:GWT_HAS_VULKAN=1>
 )
 
-# =============================================================================
 # =============================================================================
 # Strip binary for release (Linux/macOS/Android)
 # =============================================================================
@@ -213,13 +330,21 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "OpenCV: ${OpenCV_VERSION}")
+message(STATUS "")
+message(STATUS "Features:")
+message(STATUS "  BUILD_GUI: ${BUILD_GUI}")
+message(STATUS "  ENABLE_VULKAN: ${ENABLE_VULKAN}")
 if(APPLE)
-    message(STATUS "macOS Architectures: ${CMAKE_OSX_ARCHITECTURES}")
-    message(STATUS "macOS Deployment Target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    message(STATUS "")
+    message(STATUS "macOS:")
+    message(STATUS "  Architectures: ${CMAKE_OSX_ARCHITECTURES}")
+    message(STATUS "  Deployment Target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
 endif()
 if(ANDROID)
-    message(STATUS "Android ABI: ${ANDROID_ABI}")
-    message(STATUS "Android Platform: ${ANDROID_PLATFORM}")
+    message(STATUS "")
+    message(STATUS "Android:")
+    message(STATUS "  ABI: ${ANDROID_ABI}")
+    message(STATUS "  Platform: ${ANDROID_PLATFORM}")
 endif()
 message(STATUS "=============================================")
 

@@ -2,7 +2,7 @@
   "version": 6,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 20,
+    "minor": 21,
     "patch": 0
   },
   "configurePresets": [
@@ -32,7 +32,9 @@
       },
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-windows-static",
-        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded"
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded",
+        "BUILD_GUI": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui"	
       },
       "generator": "Ninja"
     },
@@ -42,7 +44,9 @@
       "inherits": "windows-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreadedDebug"
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreadedDebug",
+        "BUILD_GUI": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui"	
       }
     },
     {
@@ -50,7 +54,9 @@
       "displayName": "Windows x64 Release",
       "inherits": "windows-base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_GUI": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui"	
       }
     },
 
@@ -74,7 +80,9 @@
       "displayName": "Linux x64 Debug",
       "inherits": "linux-base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_GUI": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui"	
       }
     },
     {
@@ -82,7 +90,9 @@
       "displayName": "Linux x64 Release",
       "inherits": "linux-base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_GUI": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui"	
       }
     },
 
@@ -106,7 +116,9 @@
       "displayName": "macOS Universal Debug",
       "inherits": "mac-base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_GUI": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui"	
       }
     },
     {
@@ -114,7 +126,9 @@
       "displayName": "macOS Universal Release",
       "inherits": "mac-base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_GUI": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui"	
       }
     },
 
