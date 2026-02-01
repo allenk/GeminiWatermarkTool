@@ -117,7 +117,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
 
     # Static linking options (for standalone distribution)
     # Try to link statically where possible
-    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".so")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
     # Required for std::filesystem on older GCC
@@ -335,6 +335,9 @@ message(STATUS "OpenCV: ${OpenCV_VERSION}")
 message(STATUS "")
 message(STATUS "Features:")
 message(STATUS "  BUILD_GUI: ${BUILD_GUI}")
+message(STATUS "  OPENGL_FOUND: ${OPENGL_FOUND}")
+message(STATUS "  OPENGL_opengl_LIBRARY: ${OPENGL_opengl_LIBRARY}")
+message(STATUS "  OPENGL_glx_LIBRARY: ${OPENGL_glx_LIBRARY}")
 message(STATUS "  ENABLE_VULKAN: ${ENABLE_VULKAN}")
 if(APPLE)
     message(STATUS "")

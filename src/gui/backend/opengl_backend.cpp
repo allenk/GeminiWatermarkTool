@@ -118,7 +118,7 @@ void OpenGLBackend::shutdown() {
 
     m_window = nullptr;
     m_initialized = false;
-    
+
     spdlog::debug("OpenGL backend shutdown complete");
 }
 
@@ -131,7 +131,7 @@ void OpenGLBackend::imgui_init() {
 
     // Setup Platform/Renderer backends
     ImGui_ImplSDL3_InitForOpenGL(m_window, m_gl_context);
-    
+
     // Use GLSL version based on platform
 #if defined(__APPLE__)
     const char* glsl_version = "#version 150";
@@ -139,7 +139,7 @@ void OpenGLBackend::imgui_init() {
     const char* glsl_version = "#version 130";
 #endif
     ImGui_ImplOpenGL3_Init(glsl_version);
-    
+
     spdlog::debug("ImGui OpenGL backend initialized");
 }
 
@@ -167,10 +167,10 @@ void OpenGLBackend::begin_frame() {
     SDL_GetWindowSizeInPixels(m_window, &drawable_w, &drawable_h);
     m_window_width = drawable_w;
     m_window_height = drawable_h;
-    
+
     // Set viewport
     glViewport(0, 0, m_window_width, m_window_height);
-    
+
     // Clear screen
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -188,7 +188,7 @@ void OpenGLBackend::on_resize(int width, int height) {
     // Get actual drawable size (may differ from window size on HiDPI)
     int drawable_w = width, drawable_h = height;
     SDL_GetWindowSizeInPixels(m_window, &drawable_w, &drawable_h);
-    
+
     m_window_width = drawable_w;
     m_window_height = drawable_h;
     glViewport(0, 0, drawable_w, drawable_h);
@@ -223,7 +223,7 @@ OpenGLBackend::create_texture(const TextureDesc& desc, std::span<const uint8_t> 
     // Create OpenGL texture
     uint32_t gl_id = 0;
     glGenTextures(1, &gl_id);
-    
+
     if (!gl_id) {
         spdlog::error("Failed to create OpenGL texture");
         set_error(BackendError::TextureCreationFailed);
@@ -243,7 +243,7 @@ OpenGLBackend::create_texture(const TextureDesc& desc, std::span<const uint8_t> 
 
     // Upload data (or allocate empty texture)
     const void* pixel_data = data.empty() ? nullptr : data.data();
-    glTexImage2D(GL_TEXTURE_2D, 0, internal_format, 
+    glTexImage2D(GL_TEXTURE_2D, 0, internal_format,
                  desc.width, desc.height, 0,
                  pixel_format, GL_UNSIGNED_BYTE, pixel_data);
 
@@ -258,7 +258,7 @@ OpenGLBackend::create_texture(const TextureDesc& desc, std::span<const uint8_t> 
     TextureHandle handle{m_next_handle_id++};
     m_textures[handle.id] = TextureData{gl_id, desc};
 
-    spdlog::debug("Created texture {} ({}x{}, GL ID: {})", 
+    spdlog::debug("Created texture {} ({}x{}, GL ID: {})",
                   handle.id, desc.width, desc.height, gl_id);
 
     clear_error();
@@ -301,7 +301,7 @@ void* OpenGLBackend::get_imgui_texture_id(TextureHandle handle) const {
     if (it == m_textures.end()) {
         return nullptr;
     }
-    
+
     // ImGui expects texture ID as void* (intptr_t cast)
     return reinterpret_cast<void*>(static_cast<intptr_t>(it->second.gl_id));
 }

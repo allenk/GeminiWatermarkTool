@@ -48,7 +48,7 @@ AppController::~AppController() {
 
 bool AppController::load_image(const std::filesystem::path& path) {
     spdlog::info("Loading image: {}", path);
-    
+
     // Read image first to validate
     cv::Mat image = cv::imread(path.string(), cv::IMREAD_COLOR);
     if (image.empty()) {
@@ -58,14 +58,14 @@ bool AppController::load_image(const std::filesystem::path& path) {
         spdlog::error("{}", m_state.error_message);
         return false;
     }
-    
+
     // Clean up old state completely (including texture)
     if (m_state.preview_texture.valid()) {
         m_backend.destroy_texture(m_state.preview_texture);
         m_state.preview_texture = TextureHandle{};
     }
     m_state.reset();
-    
+
     // Update state with new image
     m_state.image.file_path = path;
     m_state.image.original = image;
@@ -101,9 +101,9 @@ bool AppController::save_image(const std::filesystem::path& path) {
         spdlog::warn("No image to save");
         return false;
     }
-    
+
     spdlog::info("Saving image: {}", path);
-    
+
     // Determine output format and quality
     std::vector<int> params;
     std::string ext = path.extension().string();
@@ -122,10 +122,10 @@ bool AppController::save_image(const std::filesystem::path& path) {
     if (!output_dir.empty() && !std::filesystem::exists(output_dir)) {
         std::filesystem::create_directories(output_dir);
     }
-    
+
     // Write currently displayed image (WYSIWYG - What You See Is What You Get)
     bool success = cv::imwrite(path.string(), m_state.image.display, params);
-    
+
     if (success) {
         m_state.status_message = "Saved: " + filename_utf8(path);
         spdlog::info("Image saved: {}", path);
@@ -321,7 +321,7 @@ void AppController::detect_custom_watermark() {
     // Run detection
     auto result = detect_watermark_region(m_state.image.original);
 
-    if (result) {
+    if (result && result->detected) {
         m_state.custom_watermark.region = result->region;
         m_state.custom_watermark.has_region = true;
         m_state.custom_watermark.detection_confidence = result->confidence;
@@ -330,22 +330,29 @@ void AppController::detect_custom_watermark() {
         m_state.status_message = fmt::format("Detected watermark ({:.0f}% confidence)",
                                               result->confidence * 100.0f);
 
-        spdlog::info("Auto-detected watermark: ({},{}) {}x{} confidence={:.2f}",
+        spdlog::info("Auto-detected watermark: ({},{}) {}x{} confidence={:.2f} "
+                     "(spatial={:.2f}, grad={:.2f}, var={:.2f})",
                      result->region.x, result->region.y,
                      result->region.width, result->region.height,
-                     result->confidence);
+                     result->confidence,
+                     result->spatial_score, result->gradient_score, result->variance_score);
     } else {
-        // Fallback to default position
+        // Fallback to default position (detection failed or low confidence)
         cv::Rect fallback = get_fallback_watermark_region(
             m_state.image.width, m_state.image.height);
 
         m_state.custom_watermark.region = fallback;
         m_state.custom_watermark.has_region = true;
-        m_state.custom_watermark.detection_confidence = 0.0f;
+        m_state.custom_watermark.detection_confidence = result ? result->confidence : 0.0f;
         m_state.process_options.custom_region = fallback;
 
-        m_state.status_message = "No watermark detected, using default position";
-        spdlog::info("Detection failed, using fallback: ({},{}) {}x{}",
+        if (result) {
+            m_state.status_message = fmt::format("No watermark detected ({:.0f}%), using default",
+                                                  result->confidence * 100.0f);
+        } else {
+            m_state.status_message = "Detection failed, using default position";
+        }
+        spdlog::info("Detection: not found, using fallback: ({},{}) {}x{}",
                      fallback.x, fallback.y, fallback.width, fallback.height);
     }
 
@@ -420,14 +427,14 @@ bool AppController::process_batch_next() {
     }
 
     // Process
-    bool success = process_image(
+    auto proc_result = process_image(
         input, output,
         m_state.process_options.remove_mode,
         *m_engine,
         m_state.process_options.force_size
     );
 
-    if (success) {
+    if (proc_result.success) {
         m_state.batch.success_count++;
     } else {
         m_state.batch.fail_count++;

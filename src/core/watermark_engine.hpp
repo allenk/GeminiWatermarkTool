@@ -16,6 +16,21 @@ enum class WatermarkSize {
 };
 
 /**
+ * Watermark detection result
+ */
+struct DetectionResult {
+    bool detected;           // Whether watermark was detected
+    float confidence;        // Detection confidence (0.0 - 1.0)
+    cv::Rect region;         // Detected watermark region
+    WatermarkSize size;      // Detected watermark size
+    
+    // Debug info
+    float spatial_score;     // Stage 1: Spatial NCC score
+    float gradient_score;    // Stage 2: Gradient NCC score  
+    float variance_score;    // Stage 3: Variance analysis score
+};
+
+/**
  * Watermark position configuration
  */
 struct WatermarkPosition {
@@ -89,6 +104,22 @@ public:
         float logo_value = 255.0f
     );
 
+    /**
+     * Detect watermark in an image using alpha map correlation
+     *
+     * Three-stage detection algorithm:
+     *   Stage 1: Spatial NCC - Normalized cross-correlation with alpha map
+     *   Stage 2: Gradient NCC - Edge signature correlation
+     *   Stage 3: Variance Analysis - Texture dampening detection
+     *
+     * @param image      The image to analyze
+     * @param force_size Force a specific watermark size (auto-detect if nullopt)
+     * @return           Detection result with confidence and region
+     */
+    DetectionResult detect_watermark(
+        const cv::Mat& image,
+        std::optional<WatermarkSize> force_size = std::nullopt
+    ) const;
 
     /**
      * Remove watermark from an image
@@ -134,12 +165,17 @@ public:
         const cv::Rect& region
     );
 
+    /**
+     * Get the alpha map for a specific size (for external use)
+     */
+    const cv::Mat& get_alpha_map(WatermarkSize size) const;
+
 private:
     cv::Mat alpha_map_small_;   // 48x48 alpha map (CV_32FC1, 0.0-1.0)
     cv::Mat alpha_map_large_;   // 96x96 alpha map (CV_32FC1, 0.0-1.0)
     float logo_value_;          // Logo brightness (255 = white)
 
-    cv::Mat& get_alpha_map(WatermarkSize size);
+    cv::Mat& get_alpha_map_mutable(WatermarkSize size);
     
     /**
      * Create an interpolated alpha map for a custom size
@@ -156,20 +192,35 @@ private:
 };
 
 /**
+ * Result of processing an image
+ */
+struct ProcessResult {
+    bool success;              // Whether processing succeeded
+    bool skipped;              // Whether processing was skipped (no watermark detected)
+    float confidence;          // Detection confidence (if detection was used)
+    std::string message;       // Status message
+};
+
+/**
  * Process a single image file
  *
  * @param input_path   Input image path
  * @param output_path  Output image path
  * @param remove       Remove watermark (true) or add watermark (false)
  * @param engine       The watermark engine to use
- * @return             True if successful
+ * @param force_size   Force a specific watermark size (auto-detect if nullopt)
+ * @param use_detection  Enable watermark detection before processing
+ * @param detection_threshold  Confidence threshold for detection (default: 0.25)
+ * @return             Processing result
  */
-bool process_image(
+ProcessResult process_image(
     const std::filesystem::path& input_path,
     const std::filesystem::path& output_path,
     bool remove,
     WatermarkEngine& engine,
-    std::optional<WatermarkSize> force_size = std::nullopt
+    std::optional<WatermarkSize> force_size = std::nullopt,
+    bool use_detection = false,
+    float detection_threshold = 0.25f
 );
 
 } // namespace gwt

@@ -7,6 +7,9 @@
  * @details
  * Command-line interface for Gemini Watermark Tool.
  * Supports single file processing, batch processing, and drag & drop.
+ *
+ * Features auto-detection of watermarks to prevent processing images
+ * that don't have Gemini watermarks (protecting original images).
  */
 
 #include "cli/cli_app.hpp"
@@ -57,7 +60,7 @@ void setup_console() {
 // Logo and Banner printing
 // =============================================================================
 
-void print_logo() {
+[[maybe_unused]] void print_logo() {
     fmt::print(fmt::fg(fmt::color::cyan), "{}", gwt::ASCII_COMPACT);
     fmt::print(fmt::fg(fmt::color::yellow), "  [Standalone Edition]");
     fmt::print(fmt::fg(fmt::color::gray), "  v{}\n", APP_VERSION);
@@ -75,17 +78,24 @@ void print_banner() {
 // Processing helpers
 // =============================================================================
 
-struct ProcessResult {
+struct BatchResult {
     int success = 0;
-    int fail = 0;
+    int skipped = 0;
+    int failed = 0;
 
     void print() const {
-        if (success + fail > 1) {
-            fmt::print(fmt::fg(fmt::color::green), "\n[OK] Completed: {} succeeded", success);
-            if (fail > 0) {
-                fmt::print(fmt::fg(fmt::color::red), ", {} failed", fail);
-            }
+        int total = success + skipped + failed;
+        if (total > 1) {
             fmt::print("\n");
+            fmt::print(fmt::fg(fmt::color::green), "[Summary] ");
+            fmt::print("Processed: {}", success);
+            if (skipped > 0) {
+                fmt::print(fmt::fg(fmt::color::yellow), ", Skipped: {}", skipped);
+            }
+            if (failed > 0) {
+                fmt::print(fmt::fg(fmt::color::red), ", Failed: {}", failed);
+            }
+            fmt::print(" (Total: {})\n", total);
         }
     }
 };
@@ -96,12 +106,30 @@ void process_single(
     bool remove,
     WatermarkEngine& engine,
     std::optional<WatermarkSize> force_size,
-    ProcessResult& result
+    bool use_detection,
+    float detection_threshold,
+    BatchResult& result
 ) {
-    if (process_image(input, output, remove, engine, force_size)) {
+    auto proc_result = process_image(input, output, remove, engine,
+                                     force_size, use_detection, detection_threshold);
+
+    if (proc_result.skipped) {
+        result.skipped++;
+        fmt::print(fmt::fg(fmt::color::yellow), "[SKIP] ");
+        fmt::print("{}: {}\n", input.filename().string(), proc_result.message);
+    } else if (proc_result.success) {
         result.success++;
+        fmt::print(fmt::fg(fmt::color::green), "[OK] ");
+        fmt::print("{}", input.filename().string());
+        if (proc_result.confidence > 0) {
+            fmt::print(fmt::fg(fmt::color::gray), " ({:.0f}% confidence)",
+                       proc_result.confidence * 100.0f);
+        }
+        fmt::print("\n");
     } else {
-        result.fail++;
+        result.failed++;
+        fmt::print(fmt::fg(fmt::color::red), "[FAIL] ");
+        fmt::print("{}: {}\n", input.filename().string(), proc_result.message);
     }
 }
 
@@ -128,9 +156,17 @@ int run_simple_mode(int argc, char** argv) {
 
     auto logger = spdlog::stdout_color_mt("gwt");
     spdlog::set_default_logger(logger);
-    spdlog::set_level(spdlog::level::info);
+    spdlog::set_level(spdlog::level::warn);  // Less verbose in simple mode
 
-    ProcessResult result;
+    BatchResult result;
+
+    // Default settings for simple mode
+    constexpr bool use_detection = true;
+    constexpr float detection_threshold = 0.25f;
+
+    fmt::print(fmt::fg(fmt::color::gray),
+               "Auto-detection enabled (threshold: {:.0f}%)\n\n",
+               detection_threshold * 100.0f);
 
     try {
         WatermarkEngine engine(
@@ -142,25 +178,28 @@ int run_simple_mode(int argc, char** argv) {
             fs::path input(argv[i]);
 
             if (!fs::exists(input)) {
-                spdlog::error("File not found: {}", argv[i]);
-                result.fail++;
+                fmt::print(fmt::fg(fmt::color::red), "[ERROR] ");
+                fmt::print("File not found: {}\n", argv[i]);
+                result.failed++;
                 continue;
             }
 
             if (fs::is_directory(input)) {
-                spdlog::error("Skipping directory: {} (For directory processing, use -i <dir> -o <dir>)", argv[i]);
-                result.fail++;
+                fmt::print(fmt::fg(fmt::color::red), "[ERROR] ");
+                fmt::print("Directory not supported in simple mode: {}\n", argv[i]);
+                fmt::print("  Use: gwt -i <dir> -o <dir>\n");
+                result.failed++;
                 continue;
             }
 
-            spdlog::info("Processing: {}", input.filename());
-            process_single(input, input, true, engine, std::nullopt, result);
+            process_single(input, input, true, engine, std::nullopt,
+                          use_detection, detection_threshold, result);
         }
 
         result.print();
-        return (result.fail > 0) ? 1 : 0;
+        return (result.failed > 0) ? 1 : 0;
     } catch (const std::exception& e) {
-        spdlog::error("Fatal error: {}", e.what());
+        fmt::print(fmt::fg(fmt::color::red), "[FATAL] {}\n", e.what());
         return 1;
     }
 }
@@ -174,7 +213,7 @@ int run(int argc, char** argv) {
     setup_console();
 
     CLI::App app{"Gemini Watermark Tool (Standalone) - Remove visible watermarks"};
-    app.footer("\nSimple usage: GeminiWatermarkTool <image>  (in-place edit)");
+    app.footer("\nSimple usage: GeminiWatermarkTool <image>  (in-place edit with auto-detection)");
     print_banner();
 
     app.set_version_flag("-V,--version", APP_VERSION);
@@ -194,6 +233,17 @@ int run(int argc, char** argv) {
     bool remove_mode = false;
     app.add_flag("--remove,-r", remove_mode, "Remove watermark from image (default)");
 
+    // Force processing (disable detection)
+    bool force_process = false;
+    app.add_flag("--force,-f", force_process,
+                 "Force processing without watermark detection (may damage images without watermarks)");
+
+    // Detection threshold
+    float detection_threshold = 0.25f;
+    app.add_option("--threshold,-t", detection_threshold,
+                   "Watermark detection confidence threshold (0.0-1.0, default: 0.25)")
+        ->check(CLI::Range(0.0f, 1.0f));
+
     // Force specific watermark size
     bool force_small = false;
     bool force_large = false;
@@ -211,6 +261,9 @@ int run(int argc, char** argv) {
 
     // Standalone mode: always remove
     remove_mode = true;
+
+    // Detection is enabled by default, disabled with --force
+    bool use_detection = !force_process;
 
     // Configure logging
     auto logger = spdlog::stdout_color_mt("gwt");
@@ -237,6 +290,16 @@ int run(int argc, char** argv) {
         spdlog::info("Forcing 96x96 watermark size");
     }
 
+    // Print detection status
+    if (use_detection) {
+        fmt::print(fmt::fg(fmt::color::gray),
+                   "Auto-detection enabled (threshold: {:.0f}%)\n\n",
+                   detection_threshold * 100.0f);
+    } else {
+        fmt::print(fmt::fg(fmt::color::yellow),
+                   "WARNING: Force mode - processing ALL images without detection!\n\n");
+    }
+
     try {
         WatermarkEngine engine(
             embedded::bg_48_png, embedded::bg_48_png_size,
@@ -246,7 +309,7 @@ int run(int argc, char** argv) {
         fs::path input(input_path);
         fs::path output(output_path);
 
-        ProcessResult result;
+        BatchResult result;
 
         if (fs::is_directory(input)) {
             if (!fs::exists(output)) {
@@ -267,15 +330,17 @@ int run(int argc, char** argv) {
                 }
 
                 fs::path out_file = output / entry.path().filename();
-                process_single(entry.path(), out_file, remove_mode, engine, force_size, result);
+                process_single(entry.path(), out_file, remove_mode, engine,
+                              force_size, use_detection, detection_threshold, result);
             }
 
             result.print();
         } else {
-            process_single(input, output, remove_mode, engine, force_size, result);
+            process_single(input, output, remove_mode, engine,
+                          force_size, use_detection, detection_threshold, result);
         }
 
-        return (result.fail > 0) ? 1 : 0;
+        return (result.failed > 0) ? 1 : 0;
     } catch (const std::exception& e) {
         spdlog::error("Fatal error: {}", e.what());
         return 1;

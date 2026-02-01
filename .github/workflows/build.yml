@@ -65,7 +65,24 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y ninja-build
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          ninja-build \
+          libxmu-dev \
+          libgl1-mesa-dev \
+          libglu1-mesa-dev \
+          libegl1-mesa-dev \
+          libx11-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libxi-dev \
+          libxext-dev \
+          libwayland-dev \
+          libxkbcommon-dev \
+          wayland-protocols \
+          libltdl-d
 
     - name: Setup vcpkg
       uses: lukka/run-vcpkg@v11

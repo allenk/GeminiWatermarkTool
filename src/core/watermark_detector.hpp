@@ -1,48 +1,41 @@
 /**
  * @file    watermark_detector.hpp
- * @brief   Watermark Region Detection using OpenCV
+ * @brief   Watermark Region Detection (Legacy Interface)
  * @author  AllenK (Kwyshell)
  * @license MIT
  *
  * @details
- * Detects semi-transparent watermark regions in images using
- * brightness analysis, local contrast comparison, and edge detection.
+ * This module provides a standalone detection interface that wraps
+ * WatermarkEngine::detect_watermark() for backward compatibility.
  *
- * The Gemini watermark is a white semi-transparent overlay that:
- * 1. Increases local brightness compared to surrounding pixels
- * 2. Reduces local contrast (alpha blending with white flattens detail)
- * 3. Has a distinctive diamond/star shape pattern
- * 4. Is typically positioned near the bottom-right corner
+ * The detection algorithm uses three-stage analysis:
+ * 1. Spatial NCC - Normalized cross-correlation with alpha map
+ * 2. Gradient NCC - Edge signature correlation
+ * 3. Variance Analysis - Texture dampening detection
+ *
+ * For new code, prefer using WatermarkEngine::detect_watermark() directly.
  */
 
 #pragma once
 
+#include "core/watermark_engine.hpp"
 #include <opencv2/core.hpp>
 #include <optional>
-#include <vector>
 
 namespace gwt {
 
-/**
- * Detection result for a candidate watermark region
- */
-struct DetectionResult {
-    cv::Rect region;            // Detected watermark bounding box
-    float confidence;           // Detection confidence [0.0, 1.0]
-    std::string method;         // Detection method used
-};
+// Re-export DetectionResult from watermark_engine.hpp
+// (already defined there with full detection info)
 
 /**
  * Detect potential watermark regions in an image
  *
- * Strategy:
- * 1. Focus on bottom-right quadrant (Gemini watermark location bias)
- * 2. Analyze local brightness anomalies (watermark brightens region)
- * 3. Detect contrast reduction (alpha blending with white reduces contrast)
- * 4. Look for semi-transparent overlay patterns
+ * This is a convenience wrapper that creates a temporary WatermarkEngine
+ * and calls detect_watermark(). For better performance when processing
+ * multiple images, use WatermarkEngine directly.
  *
  * @param image      Input image (BGR, 8-bit)
- * @param hint_rect  Optional hint region to search within
+ * @param hint_rect  Ignored (kept for API compatibility)
  * @return           Detection result, or std::nullopt if nothing found
  */
 std::optional<DetectionResult> detect_watermark_region(
@@ -51,7 +44,7 @@ std::optional<DetectionResult> detect_watermark_region(
 );
 
 /**
- * Get fallback watermark region (96x96 rule)
+ * Get fallback watermark region based on image dimensions
  * Used when detection fails
  *
  * @param image_width   Image width

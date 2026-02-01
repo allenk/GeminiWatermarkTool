@@ -96,7 +96,7 @@ void ImagePreview::render_image() {
     // Image dimensions
     float img_w = static_cast<float>(state.image.width);
     float img_h = static_cast<float>(state.image.height);
-    
+
     // Create scrollable region first, then get actual content region inside
     ImGuiWindowFlags scroll_flags = ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
     ImGui::BeginChild("ImageScrollRegion", avail_for_child, false, scroll_flags);
@@ -532,19 +532,41 @@ void ImagePreview::handle_input(const ImVec2& viewport_size, float content_w, fl
         ImGui::SetScrollY(0);
     }
 
-    // Arrow keys for panning
-    float pan_speed = 20.0f;
-    if (ImGui::IsKeyDown(ImGuiKey_LeftArrow)) {
-        ImGui::SetScrollX(ImGui::GetScrollX() - pan_speed);
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_RightArrow)) {
-        ImGui::SetScrollX(ImGui::GetScrollX() + pan_speed);
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
-        ImGui::SetScrollY(ImGui::GetScrollY() - pan_speed);
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
-        ImGui::SetScrollY(ImGui::GetScrollY() + pan_speed);
+    // Arrow keys behavior:
+    // - In Custom mode with region: move the custom region (1 pixel per press)
+    // - Otherwise: pan the image
+    bool custom_mode_with_region =
+        (state.process_options.size_mode == WatermarkSizeMode::Custom) &&
+        state.custom_watermark.has_region;
+
+    if (custom_mode_with_region && is_hovered) {
+        // Move custom region with arrow keys (use IsKeyPressed for single-step movement)
+        cv::Rect region = state.custom_watermark.region;
+        bool region_changed = false;
+
+        // Hold Shift for faster movement (10 pixels)
+        int step = io.KeyShift ? 10 : 1;
+        
+        if (ImGui::IsKeyPressed(ImGuiKey_A, true)) {
+            region.x -= step;
+            region_changed = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_D, true)) {
+            region.x += step;
+            region_changed = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_W, true)) {
+            region.y -= step;
+            region_changed = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_S, true)) {
+            region.y += step;
+            region_changed = true;
+        }
+        
+        if (region_changed) {
+            m_controller.set_custom_region(region);
+        }
     }
 }
 

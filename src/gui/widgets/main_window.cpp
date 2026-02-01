@@ -15,15 +15,154 @@
 #include <spdlog/spdlog.h>
 #include <fmt/core.h>
 #include <algorithm>
+#include <cstdlib>
+#include <cstdio>
 
 namespace gwt::gui {
 
 // =============================================================================
 // File Dialog Helpers (Cross-platform via nativefiledialog-extended)
+// With Linux fallback to zenity/kdialog when portal is unavailable
 // =============================================================================
 
 namespace {
 
+#ifdef __linux__
+// =============================================================================
+// Linux Fallback: zenity / kdialog
+// =============================================================================
+enum class LinuxDialogTool {
+    None,
+    Zenity,
+    Kdialog
+};
+
+// Escape single quotes for safe shell argument interpolation
+std::string shell_escape(const std::string& input) {
+    std::string escaped = input;
+    size_t pos = 0;
+    while ((pos = escaped.find('\'', pos)) != std::string::npos) {
+        escaped.replace(pos, 1, "'\\''");
+        pos += 4;
+    }
+    return escaped;
+}
+
+// Detect available dialog tool (cached on first call)
+LinuxDialogTool detect_dialog_tool() {
+    static LinuxDialogTool cached = []() {
+        // Check zenity first (more common on GNOME/GTK desktops)
+        if (std::system("which zenity > /dev/null 2>&1") == 0)
+            return LinuxDialogTool::Zenity;
+        if (std::system("which kdialog > /dev/null 2>&1") == 0)
+            return LinuxDialogTool::Kdialog;
+        return LinuxDialogTool::None;
+    }();
+    return cached;
+}
+
+// Run a shell command and capture its stdout as a file path
+std::optional<std::filesystem::path> run_command_dialog(const std::string& cmd) {
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) return std::nullopt;
+
+    char buffer[4096];
+    std::string result;
+    while (fgets(buffer, sizeof(buffer), pipe)) {
+        result += buffer;
+    }
+
+    int status = pclose(pipe);
+    if (status != 0 || result.empty()) return std::nullopt;
+
+    // Remove trailing newline
+    while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
+        result.pop_back();
+    }
+
+    if (result.empty()) return std::nullopt;
+    return std::filesystem::path(result);
+}
+
+std::optional<std::filesystem::path> fallback_open_file_dialog() {
+    auto tool = detect_dialog_tool();
+
+    if (tool == LinuxDialogTool::Zenity) {
+        return run_command_dialog(
+            "zenity --file-selection "
+            "--title='Open Image' "
+            "--file-filter='Image Files|*.jpg *.jpeg *.png *.webp *.bmp' "
+            "--file-filter='All Files|*' "
+            "2>/dev/null"
+        );
+    }
+    if (tool == LinuxDialogTool::Kdialog) {
+        return run_command_dialog(
+            "kdialog --getopenfilename . "
+            "'Image Files (*.jpg *.jpeg *.png *.webp *.bmp)' "
+            "2>/dev/null"
+        );
+    }
+
+    spdlog::error("No file dialog available. Install zenity or kdialog.");
+    return std::nullopt;
+}
+
+std::optional<std::filesystem::path> fallback_save_file_dialog(const std::string& default_name) {
+    auto tool = detect_dialog_tool();
+
+    if (tool == LinuxDialogTool::Zenity) {
+        std::string cmd = "zenity --file-selection --save --confirm-overwrite "
+                          "--title='Save Image' "
+                          "--file-filter='PNG Image|*.png' "
+                          "--file-filter='JPEG Image|*.jpg *.jpeg' "
+                          "--file-filter='WebP Image|*.webp' "
+                          "--file-filter='All Files|*' ";
+        if (!default_name.empty()) {
+            cmd += "--filename='" + shell_escape(default_name) + "' ";
+        }
+        cmd += "2>/dev/null";
+        return run_command_dialog(cmd);
+    }
+    if (tool == LinuxDialogTool::Kdialog) {
+        std::string cmd = "kdialog --getsavefilename ";
+        if (!default_name.empty()) {
+            cmd += "'" + shell_escape(default_name) + "' ";
+        } else {
+            cmd += ". ";
+        }
+        cmd += "'Image Files (*.png *.jpg *.jpeg *.webp)' 2>/dev/null";
+        return run_command_dialog(cmd);
+    }
+
+    spdlog::error("No file dialog available. Install zenity or kdialog.");
+    return std::nullopt;
+}
+
+std::optional<std::filesystem::path> fallback_pick_folder_dialog() {
+    auto tool = detect_dialog_tool();
+
+    if (tool == LinuxDialogTool::Zenity) {
+        return run_command_dialog(
+            "zenity --file-selection --directory "
+            "--title='Select Folder' "
+            "2>/dev/null"
+        );
+    }
+    if (tool == LinuxDialogTool::Kdialog) {
+        return run_command_dialog(
+            "kdialog --getexistingdirectory . 2>/dev/null"
+        );
+    }
+
+    spdlog::error("No file dialog available. Install zenity or kdialog.");
+    return std::nullopt;
+}
+#endif  // __linux__
+
+// =============================================================================
+// Cross-platform file dialogs (NFD with Linux fallback)
+// =============================================================================
 std::optional<std::filesystem::path> open_file_dialog() {
     NFD_Init();
 
@@ -39,7 +178,12 @@ std::optional<std::filesystem::path> open_file_dialog() {
         path = std::filesystem::path(out_path);
         NFD_FreePath(out_path);
     } else if (result == NFD_ERROR) {
-        spdlog::error("File dialog error: {}", NFD_GetError());
+        spdlog::debug("NFD dialog failed: {}", NFD_GetError());
+#ifdef __linux__
+        spdlog::info("Falling back to zenity/kdialog...");
+        NFD_Quit();
+        return fallback_open_file_dialog();
+#endif
     }
     // NFD_CANCEL means user cancelled, no error
 
@@ -68,14 +212,19 @@ std::optional<std::filesystem::path> save_file_dialog(const std::string& default
         path = std::filesystem::path(out_path);
         NFD_FreePath(out_path);
     } else if (result == NFD_ERROR) {
-        spdlog::error("File dialog error: {}", NFD_GetError());
+        spdlog::debug("NFD dialog failed: {}", NFD_GetError());
+#ifdef __linux__
+        spdlog::info("Falling back to zenity/kdialog...");
+        NFD_Quit();
+        return fallback_save_file_dialog(default_name);
+#endif
     }
 
     NFD_Quit();
     return path;
 }
 
-std::optional<std::filesystem::path> pick_folder_dialog() {
+[[maybe_unused]] std::optional<std::filesystem::path> pick_folder_dialog() {
     NFD_Init();
 
     nfdchar_t* out_path = nullptr;
@@ -86,7 +235,12 @@ std::optional<std::filesystem::path> pick_folder_dialog() {
         path = std::filesystem::path(out_path);
         NFD_FreePath(out_path);
     } else if (result == NFD_ERROR) {
-        spdlog::error("Folder dialog error: {}", NFD_GetError());
+        spdlog::debug("NFD dialog failed: {}", NFD_GetError());
+#ifdef __linux__
+        spdlog::info("Falling back to zenity/kdialog...");
+        NFD_Quit();
+        return fallback_pick_folder_dialog();
+#endif
     }
 
     NFD_Quit();
@@ -148,7 +302,7 @@ void MainWindow::render() {
     content_height = std::max(1.0f, content_height);
 
     // Main content area with control panel and image
-    float control_panel_width = 240.0f * scale;
+    float control_panel_width = 230.0f * scale;
 
     ImGui::BeginChild("ControlPanel", ImVec2(control_panel_width, content_height), true);
     render_control_panel();
@@ -282,13 +436,18 @@ void MainWindow::render_menu_bar() {
         if (ImGui::BeginMenu("Help")) {
             if (ImGui::MenuItem("Online Documentation")) {
                 // Open Medium article in default browser
+                constexpr const char* url =
+                    "https://allenkuo.medium.com/removing-gemini-ai-watermarks-"
+                    "a-deep-dive-into-reverse-alpha-blending-bbbd83af2a3f";
+                std::string cmd;
                 #ifdef _WIN32
-                    system("start https://allenkuo.medium.com/removing-gemini-ai-watermarks-a-deep-dive-into-reverse-alpha-blending-bbbd83af2a3f");
+                    cmd = std::string("start ") + url;
                 #elif __APPLE__
-                    system("open https://allenkuo.medium.com/removing-gemini-ai-watermarks-a-deep-dive-into-reverse-alpha-blending-bbbd83af2a3f");
+                    cmd = std::string("open ") + url;
                 #else
-                    system("xdg-open https://allenkuo.medium.com/removing-gemini-ai-watermarks-a-deep-dive-into-reverse-alpha-blending-bbbd83af2a3f &");
+                    cmd = std::string("xdg-open ") + url + " &";
                 #endif
+                [[maybe_unused]] int ret = system(cmd.c_str());
             }
             ImGui::Separator();
             if (ImGui::MenuItem("About")) {
@@ -472,14 +631,33 @@ void MainWindow::render_control_panel() {
     ImGui::Spacing();
     ImGui::Spacing();
     ImGui::Separator();
+
     ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Shortcuts");
-    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "X       Process image");
-    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "V       Compare original");
-    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Z      Revert to original");
-    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Space  Pan (hold + drag)");
-    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Alt    Pan (hold + drag)");
+
+    if (ImGui::BeginTable("shortcuts", 2)) {
+        ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch);
+
+        auto row = [](const char* key, const char* desc) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", key);
+            ImGui::TableNextColumn();
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s", desc);
+            };
+
+        row("X", "Process image");
+        row("V", "Compare original");
+        row("Z", "Revert to original");
+        row("W A S D", "Move selected region");
+        row("Space", "Pan (hold + drag)");
+        row("Alt", "Pan (hold + drag)");
+
+        ImGui::EndTable();
+    }
+
     ImGui::Separator();
-    ImGui::Text("");
+    ImGui::Text(" ");
 }
 
 void MainWindow::render_image_area() {
