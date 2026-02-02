@@ -82,7 +82,7 @@ jobs:
           libwayland-dev \
           libxkbcommon-dev \
           wayland-protocols \
-          libltdl-d
+          libltdl-dev
 
     - name: Setup vcpkg
       uses: lukka/run-vcpkg@v11

@@ -1,7 +1,7 @@
 # Gemini Watermark Tool
 
 > ## 📌 Original Author Notice (Reverse Alpha Blending)
-> I am the original author of **GeminiWatermarkTool** and the reverse **alpha-blending** restoration method used to remove the visible “Gemini” watermark while preserving image detail (Allen Kuo / allenk).
+> I am the original author of **GeminiWatermarkTool** and the reverse **alpha-blending** restoration method used to remove the visible "Gemini" watermark while preserving image detail (Allen Kuo / allenk).
 >
 > This project achieves high-precision restoration by using my calibrated **48×48** and **96×96** **Reverse-Alpha Masks** to invert the blending equation. Since I published this work and these assets, many derivative tools (desktop apps, websites, browser extensions, etc.) have appeared using the same approach and/or directly reusing the masks produced by this project — because the method is deterministic and highly effective.
 >
@@ -16,27 +16,107 @@
 > **Removing Gemini AI Watermarks: A Deep Dive into Reverse Alpha Blending**  
 > https://allenkuo.medium.com/removing-gemini-ai-watermarks-a-deep-dive-into-reverse-alpha-blending-bbbd83af2a3f
 
-
-Gemini Watermark Tool is a lightweight, standalone command-line utility that removes Gemini Nano Banana / Pro watermarks from images using **mathematically accurate reverse alpha blending**.
+Gemini Watermark Tool removes Gemini visible watermarks from images using **mathematically accurate reverse alpha blending**. Available as both a **command-line tool** and a **graphical desktop application**.
 
 - **Fast & offline**: single executable, **zero dependencies**
-- **Flexible workflows**: in-place editing, explicit input/output, and **batch directory** processing
-- **Cross-platform**: Windows / Linux / macOS / Android
-- **Auto detection**: detects 48×48 vs 96×96 watermark size automatically
+- **GUI + CLI**: desktop app with drag & drop, or command-line for automation
+- **Smart detection**: three-stage NCC algorithm with confidence scoring — skip non-watermarked images automatically
+- **Batch processing**: process entire directories with thumbnail preview and progress tracking
+- **Cross-platform**: Windows / Linux / macOS / Android (CLI)
 
-<!-- CLI Preview -->
-![Preview](artworks/preview.png)
+## 🖥️ GUI Application — Major Update
 
-## Features
+> **GeminiWatermarkTool now comes with a full graphical desktop application.**
+> No command line needed — just open, drag & drop, and process. Supports single-image editing with real-time preview, and batch processing with smart watermark detection.
 
-- **Batch Processing** - Process entire directories at once
-- **One-Click Removal** - Simply drag & drop an image onto the executable
-- **In-Place Editing** - Process files directly without specifying output
-- **Deterministic (Not Inpainting)** - Restores pixels via reverse alpha blending (no guessing)
-- **Cross-Platform** - Windows, Linux, macOS, and Android
-- **Zero Dependencies** - Single standalone executable, no installation required
-- **Auto Size Detection** - Automatically detects 48×48 or 96×96 watermark size
-- **Mathematically Accurate** - Precise restoration using reverse alpha blending
+The desktop GUI provides an interactive workflow for both single-image and batch operations.
+
+![GUI Demo](artworks/gui_demo.png)
+
+### Single Image Editing
+
+<!-- TODO: Replace with actual GIF -->
+![GUI Single Image](artworks/gui_single.gif)
+
+- Drag & drop or open any supported image
+- Auto-detect watermark size (48×48 / 96×96) or select manually
+- **Custom watermark mode**: draw a region interactively, resize with 8-point anchors, fine-tune position with WASD keys
+- Real-time before/after comparison (press **V**)
+- One-key processing (**X**) and revert (**Z**)
+- Zoom, pan (Space/Alt + drag, mouse wheel), and fit-to-window
+
+### Batch Processing
+
+<!-- TODO: Replace with actual GIF -->
+![GUI Batch Processing](artworks/gui_batch.gif)
+
+- **Drag & drop** multiple files or an **entire folder** to enter batch mode
+- Thumbnail atlas preview with filename labels and status overlays (OK / SKIP / FAIL)
+- **Detection threshold slider** (0–100%, 5% steps, 25% recommended) — automatically skip images without watermarks
+- Confirmation dialog before overwriting originals
+- Non-blocking processing with progress bar and scrollable result log
+- Thumbnails refresh after completion to show processed results
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| X | Process image |
+| V | Compare with original |
+| Z | Revert to original |
+| W A S D | Move custom watermark region |
+| Space / Alt | Pan (hold + drag) |
+| Ctrl+W | Close / exit batch mode |
+
+## CLI — What's New
+
+In addition to the GUI, the command line has been significantly enhanced.
+
+### Simple Mode — Now Supports Multiple Files
+
+```bash
+# Process multiple files at once (new!)
+GeminiWatermarkTool img1.jpg img2.png img3.webp
+```
+
+Watermark detection is **enabled by default** in simple mode — images without a detectable watermark are automatically skipped to prevent accidental damage.
+
+```bash
+# Force processing without detection
+GeminiWatermarkTool --force image.jpg
+
+# Custom detection threshold (default: 25%)
+GeminiWatermarkTool --threshold 0.40 image.jpg
+```
+
+### Standard Mode
+
+```bash
+# Single file with explicit output
+GeminiWatermarkTool -i input.jpg -o output.jpg
+
+# Batch directory processing
+GeminiWatermarkTool -i ./watermarked_images/ -o ./clean_images/
+```
+
+## Watermark Detection
+
+> Inspired by [@dannycreations](https://github.com/dannycreations)'s [contribution](https://github.com/allenk/GeminiWatermarkTool/pull/13) on watermark presence detection. We took the concept further with a production-grade three-stage algorithm deeply integrated into both CLI and GUI workflows.
+
+Batch processing watermark-free images can cause unnecessary pixel damage. The tool now uses a **three-stage NCC (Normalized Cross-Correlation)** algorithm to detect watermarks before processing, ensuring only watermarked images are modified:
+
+1. **Spatial NCC** — correlates the image region with the known alpha map (50% weight, with circuit breaker at 0.25 to short-circuit obvious non-matches)
+2. **Gradient NCC** — Sobel edge matching to detect the star-shaped structural pattern (30% weight)
+3. **Statistical Variance** — texture dampening analysis to distinguish real watermarks from white/flat regions (20% weight)
+
+A combined confidence score determines whether a watermark is present. The default threshold is **25%** — images below this score are skipped. This eliminates false positives from white backgrounds or similar-looking content that plagued simpler correlation-based approaches.
+
+| Flag | Effect |
+|------|--------|
+| `--force` | Skip detection, process all images unconditionally |
+| `--threshold 0.40` | Set custom confidence threshold (0.0–1.0) |
+
+Detection is **enabled by default** in simple/drag-and-drop mode and **disabled by default** in standard (`-i` / `-o`) mode. In the GUI, the threshold is adjustable via a slider (0–100%, 5% steps) with a recommended 25% default.
 
 ## Demo
 
@@ -117,66 +197,37 @@ Download the latest release from the [Releases](https://github.com/allenk/Gemini
 >
 > The author assumes no responsibility for any data loss, image corruption, or unintended modifications. By using this tool, you acknowledge that you understand these risks.
 
-## Quick Start
+## CLI — Quick Start
 
 <img src="artworks/app_ico.png" alt="App Icon" width="256" height="256">
 
-### Simplest Usage (Drag & Drop) - Windows
+Don't need the GUI? The CLI is designed for **maximum simplicity** — one drag, one drop, done.
+
+### Drag & Drop (Windows) — The Easiest Way
 
 1. Download `GeminiWatermarkTool-Windows-x64.exe`
 2. Drag an image file onto the executable
-3. Done! The watermark is removed in-place
+3. ✅ Done! The watermark is removed in-place — no terminal, no arguments
+
+<!-- CLI Preview -->
+![Preview](artworks/preview.png)
 
 ### Command Line
 
 ```bash
-# Simple mode - edit file in-place
+# Simple mode - just provide a filename
 GeminiWatermarkTool watermarked.jpg
 
-# Specify output file
+# Specify output file (preserves original)
 GeminiWatermarkTool -i watermarked.jpg -o clean.jpg
 
-# Batch processing
+# Batch processing - entire directory
 GeminiWatermarkTool -i ./input_folder/ -o ./output_folder/
 ```
 
-## Usage
-
-### Simple Mode (Recommended)
-
-The easiest way to use this tool - just provide a single image path:
-
-```bash
-GeminiWatermarkTool image.jpg
-```
-
-This will **remove the watermark in-place**, overwriting the original file.
+Supported formats: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`
 
 > ⚠️ **Warning**: Simple mode overwrites the original file permanently. **Always back up important images before processing.**
-
-### Standard Mode
-
-For more control, use the `-i` (input) and `-o` (output) options:
-
-```bash
-# Single file
-GeminiWatermarkTool -i input.jpg -o output.jpg
-
-# With explicit --remove flag (optional)
-GeminiWatermarkTool -i input.jpg -o output.jpg --remove
-```
-
-## Batch Processing (Directory Mode)
-
-Process all images in a directory:
-
-```bash
-GeminiWatermarkTool -i ./watermarked_images/ -o ./clean_images/
-```
-
-- Input: directory
-- Output: directory
-- Supported formats: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`
 
 ## Command Line Options
 
@@ -185,6 +236,8 @@ GeminiWatermarkTool -i ./watermarked_images/ -o ./clean_images/
 | `--input <path>` | `-i` | Input image file or directory |
 | `--output <path>` | `-o` | Output image file or directory |
 | `--remove` | `-r` | Remove watermark (default behavior) |
+| `--force` | `-f` | Force processing (skip watermark detection) |
+| `--threshold <val>` | `-t` | Detection confidence threshold, 0.0–1.0 (default: 0.25) |
 | `--force-small` | | Force 48×48 watermark size |
 | `--force-large` | | Force 96×96 watermark size |
 | `--verbose` | `-v` | Enable verbose output |
@@ -202,61 +255,14 @@ The tool automatically detects the appropriate watermark size based on image dim
 | W ≤ 1024 **or** H ≤ 1024 | 48×48 | Bottom-right, 32px margin |
 | W > 1024 **and** H > 1024 | 96×96 | Bottom-right, 64px margin |
 
-### Examples
-
-| Image Dimensions | Detected Size |
-|------------------|---------------|
-| 800 × 600 | Small (48×48) |
-| 800 × 1200 | Small (48×48) |
-| 1024 × 768 | Small (48×48) |
-| 1024 × 1024 | Small (48×48) |
-| 1920 × 1080 | Large (96×96) |
-
 Use `--force-small` or `--force-large` to override automatic detection.
-
-## Examples
-
-### Example 1: Quick Edit
-
-```bash
-# Just remove the watermark, keep the same filename
-GeminiWatermarkTool photo_from_gemini.jpg
-```
-
-### Example 2: Preserve Original
-
-```bash
-# Save to a new file, keeping the original intact
-GeminiWatermarkTool -i original.jpg -o cleaned.jpg
-```
-
-### Example 3: Process Multiple Files
-
-```bash
-# Process all images in a folder
-GeminiWatermarkTool -i ./gemini_outputs/ -o ./processed/
-```
-
-### Example 4: Verbose Mode
-
-```bash
-# See detailed processing information
-GeminiWatermarkTool -i image.jpg -o output.jpg -v
-```
-### Pre-built Binaries
-
-| Platform | Requirements |
-|----------|--------------|
-| Windows | Windows 10/11 x64 |
-| Linux | x64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) |
-| macOS | macOS 11.0+ (Intel or Apple Silicon) |
 
 ## System Requirements
 
 | Platform | Requirements |
 |----------|--------------|
 | Windows | Windows 10/11 x64 |
-| Linux | x64, glibc 2.31+ (Ubuntu 20.04+) |
+| Linux | x64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) |
 | macOS | macOS 11.0+ (Intel or Apple Silicon) |
 | Android | ARM64, Android 10+ (API 29+) |
 
@@ -295,7 +301,7 @@ Make sure the output path is writable and the file isn't open in another program
 | Tool | Version | Notes |
 |------|---------|-------|
 | CMake | 3.21+ | For CMakePresets support |
-| C++ Compiler | C++17 | MSVC 2022, GCC 10+, Clang 12+ |
+| C++ Compiler | C++20 | MSVC 2022, GCC 12+, Clang 14+ |
 | vcpkg | Latest | Package manager |
 | Ninja | Latest | Recommended build system |
 
@@ -404,12 +410,24 @@ gemini-watermark-tool/
 ├── CMakePresets.json           # Cross-platform build presets
 ├── vcpkg.json                  # Dependencies manifest
 ├── src/
-│   ├── main.cpp                # CLI entry point
-│   ├── watermark_engine.cpp    # Core watermark processing
-│   ├── watermark_engine.hpp
-│   ├── blend_modes.cpp         # Alpha blending algorithms
-│   ├── blend_modes.hpp
-│   └── ascii_logo.hpp          # ASCII art banner
+│   ├── core/                   # Core engine (CLI + GUI shared)
+│   │   ├── watermark_engine.hpp/cpp
+│   │   ├── blend_modes.hpp/cpp
+│   │   ├── image_processing.hpp/cpp
+│   │   └── ascii_logo.hpp
+│   ├── cli/                    # CLI entry point
+│   │   └── main.cpp
+│   └── gui/                    # Desktop GUI (ImGui + SDL3)
+│       ├── app/
+│       │   ├── app_state.hpp         # Application state
+│       │   └── app_controller.hpp/cpp # Logic controller
+│       ├── widgets/
+│       │   ├── main_window.hpp/cpp   # Main window + menus
+│       │   └── image_preview.hpp/cpp # Image viewer + batch view
+│       ├── backend/
+│       │   └── render_backend.hpp/cpp # OpenGL texture management
+│       └── resources/
+│           └── style.hpp             # Theme and layout constants
 ├── report/
 │   └── synthid_research.md     # SynthID research documentation
 └── resources/
@@ -427,6 +445,10 @@ All dependencies are managed via vcpkg and statically linked:
 | fmt | Modern string formatting |
 | CLI11 | Command line argument parsing |
 | spdlog | Logging framework |
+| SDL3 | Window management and input (GUI) |
+| Dear ImGui | Immediate mode GUI framework (GUI) |
+| ImPlot | Plotting widgets (GUI) |
+| nativefiledialog-extended | Native file dialogs (GUI) |
 
 ---
 
@@ -486,4 +508,3 @@ MIT License
 <p align="center">
   <i>If this tool helped you, consider giving it a ⭐</i>
 </p>
-
