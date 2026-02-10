@@ -28,11 +28,36 @@
 #include <algorithm>
 #include <string>
 
+// TTY detection (cross-platform)
+#ifdef _WIN32
+    #include <io.h>
+    #ifndef STDIN_FILENO
+        #define STDIN_FILENO 0
+        #define STDOUT_FILENO 1
+        #define STDERR_FILENO 2
+    #endif
+    #define isatty _isatty
+#else
+    #include <unistd.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace gwt::cli {
 
 namespace {
+
+// =============================================================================
+// TTY Detection
+// =============================================================================
+
+/**
+ * Check if stdout is connected to a terminal (TTY).
+ * Returns false when output is piped or redirected (e.g., AI agent calls).
+ */
+bool is_terminal() noexcept {
+    return isatty(STDOUT_FILENO) != 0;
+}
 
 // =============================================================================
 // Logo and Banner printing
@@ -111,6 +136,31 @@ void process_single(
     }
 }
 
+/**
+ * Parse --banner / --no-banner from argv before CLI11 parsing.
+ * Returns: std::nullopt (use auto), true (force show), false (force hide)
+ */
+std::optional<bool> parse_banner_flag(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--banner") return true;
+        if (arg == "--no-banner") return false;
+    }
+    return std::nullopt;  // Auto-detect
+}
+
+/**
+ * Determine if banner should be shown.
+ * Priority: --banner/--no-banner flag > TTY auto-detection
+ */
+bool should_show_banner(std::optional<bool> flag_override) {
+    if (flag_override.has_value()) {
+        return flag_override.value();
+    }
+    // Auto: show banner only if stdout is a terminal
+    return is_terminal();
+}
+
 }  // anonymous namespace
 
 // =============================================================================
@@ -122,6 +172,10 @@ bool is_simple_mode(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (!arg.empty() && arg[0] == '-') {
+            // Allow --banner and --no-banner in simple mode
+            if (arg == "--banner" || arg == "--no-banner") {
+                continue;
+            }
             return false;
         }
     }
@@ -129,7 +183,11 @@ bool is_simple_mode(int argc, char** argv) {
 }
 
 int run_simple_mode(int argc, char** argv) {
-    print_banner();
+    // Check banner preference
+    auto banner_flag = parse_banner_flag(argc, argv);
+    if (should_show_banner(banner_flag)) {
+        print_banner();
+    }
 
     auto logger = spdlog::stdout_color_mt("gwt");
     spdlog::set_default_logger(logger);
@@ -152,7 +210,14 @@ int run_simple_mode(int argc, char** argv) {
         );
 
         for (int i = 1; i < argc; ++i) {
-            fs::path input(argv[i]);
+            std::string arg = argv[i];
+            
+            // Skip banner flags
+            if (arg == "--banner" || arg == "--no-banner") {
+                continue;
+            }
+
+            fs::path input(arg);
 
             if (!fs::exists(input)) {
                 fmt::print(fmt::fg(fmt::color::red), "[ERROR] ");
@@ -189,11 +254,21 @@ int run(int argc, char** argv) {
         return run_simple_mode(argc, argv);
     }
 
+    // Check banner preference before CLI11 parsing
+    auto banner_flag = parse_banner_flag(argc, argv);
+
     CLI::App app{"Gemini Watermark Tool (Standalone) - Remove visible watermarks"};
     app.footer("\nSimple usage: GeminiWatermarkTool <image>  (in-place edit with auto-detection)");
-    print_banner();
 
     app.set_version_flag("-V,--version", APP_VERSION);
+
+    // Banner control flags (parsed manually above, but registered for --help)
+    bool banner_show = false;
+    bool banner_hide = false;
+    app.add_flag("--banner", banner_show, 
+                 "Show ASCII banner (default: auto-detect based on TTY)");
+    app.add_flag("--no-banner", banner_hide, 
+                 "Hide ASCII banner (useful for scripts and AI agents)");
 
     // Input/Output paths
     std::string input_path;
@@ -235,6 +310,11 @@ int run(int argc, char** argv) {
 
     // Parse arguments
     CLI11_PARSE(app, argc, argv);
+
+    // Print banner after parsing (so --help doesn't show banner)
+    if (should_show_banner(banner_flag)) {
+        print_banner();
+    }
 
     // Standalone mode: always remove
     remove_mode = true;

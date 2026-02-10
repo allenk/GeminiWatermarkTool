@@ -139,6 +139,8 @@ A combined confidence score determines whether a watermark is present. The defau
 |------|--------|
 | `--force` | Skip detection, process all images unconditionally |
 | `--threshold 0.40` | Set custom confidence threshold (0.0–1.0) |
+| `--no-banner` | Hide ASCII banner (for scripts and AI agents) |
+| `--banner` | Force show ASCII banner |
 
 Detection is **enabled by default** in simple/drag-and-drop mode and **disabled by default** in standard (`-i` / `-o`) mode. In the GUI, the threshold is adjustable via a slider (0–100%, 5% steps) with a recommended 25% default.
 
