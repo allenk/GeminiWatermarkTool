@@ -31,11 +31,21 @@
 #include <string_view>
 #include <fmt/format.h>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace gwt {
 
 /**
  * Convert filesystem path to UTF-8 encoded std::string
- * 
+ *
  * This handles the C++20 char8_t issue where u8string() returns std::u8string
  * instead of std::string.
  *
@@ -58,6 +68,42 @@ inline std::string filename_utf8(const std::filesystem::path& path) {
     return to_utf8(path.filename());
 }
 
+/**
+ * Convert UTF-8 string to filesystem path
+ *
+ * SDL always returns UTF-8 on all platforms (including drop events).
+ * On Windows without UTF-8 beta enabled, std::filesystem::path(const char*)
+ * interprets the string as ANSI (system code page), causing corruption
+ * for non-ASCII characters (CJK, etc.).
+ *
+ * This function correctly handles UTF-8 → wstring → path on Windows.
+ *
+ * @param utf8_str  UTF-8 encoded string (e.g., from SDL drop event)
+ * @return          Properly constructed filesystem path
+ */
+inline std::filesystem::path path_from_utf8(const char* utf8_str) {
+#ifdef _WIN32
+    if (!utf8_str || !*utf8_str) return {};
+
+    // Calculate required buffer size
+    int len = MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, nullptr, 0);
+    if (len <= 0) return std::filesystem::path(utf8_str);  // fallback
+
+    // Convert UTF-8 to wide string
+    std::wstring wstr(len - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, wstr.data(), len);
+
+    return std::filesystem::path(wstr);
+#else
+    // Linux/macOS are UTF-8 native
+    return std::filesystem::path(utf8_str);
+#endif
+}
+
+// Overload for std::string
+inline std::filesystem::path path_from_utf8(const std::string& utf8_str) {
+    return path_from_utf8(utf8_str.c_str());
+}
 }  // namespace gwt
 
 // =============================================================================

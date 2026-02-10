@@ -6,6 +6,7 @@
  */
 
 #include "gui/widgets/main_window.hpp"
+#include "utils/path_formatter.hpp"
 
 #include <imgui.h>
 #include <implot.h>
@@ -372,7 +373,9 @@ bool MainWindow::handle_event(const SDL_Event& event) {
 
     // Handle drag & drop
     if (event.type == SDL_EVENT_DROP_FILE) {
-        std::filesystem::path path(event.drop.data);
+        // SDL always returns UTF-8 paths on all platforms
+        // On Windows without UTF-8 beta, we must convert properly
+        std::filesystem::path path = gwt::path_from_utf8(event.drop.data);
 
         if (std::filesystem::is_directory(path)) {
             // Directory dropped: collect all supported image files (non-recursive)
@@ -644,7 +647,7 @@ void MainWindow::render_control_panel() {
             int threshold_pct = static_cast<int>(state.batch.detection_threshold * 100.0f + 0.5f);
             // Snap to nearest 5
             threshold_pct = ((threshold_pct + 2) / 5) * 5;
-            
+
             ImGui::SetNextItemWidth(-1);
             if (ImGui::SliderInt("##threshold", &threshold_pct, 0, 100, "Threshold: %d%%")) {
                 // Snap to 5% steps
@@ -701,7 +704,7 @@ void MainWindow::render_control_panel() {
         ImGui::Separator();
 
         ImGui::Text("Files: %zu", state.batch.total());
-        
+
         if (state.batch.is_complete()) {
             ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f),
                               "OK: %zu  Skipped: %zu  Failed: %zu",
@@ -724,7 +727,7 @@ void MainWindow::render_control_panel() {
     ImGui::Spacing();
 
     ImVec2 button_size(-1, 40.0f * state.dpi_scale);
-    
+
     if (state.batch.in_progress) {
         // Cancel button during batch processing
         if (ImGui::Button("Cancel Batch", button_size)) {
@@ -849,7 +852,7 @@ void MainWindow::render_about_dialog() {
 
 void MainWindow::render_batch_confirm_dialog() {
     auto& state = m_controller.state();
-    
+
     ImGui::OpenPopup("Batch Processing");
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -862,7 +865,7 @@ void MainWindow::render_batch_confirm_dialog() {
 
         ImGui::Text("Files to process: %zu", state.batch.total());
         ImGui::Text("Mode: %s", state.process_options.remove_mode ? "Remove Watermark" : "Add Watermark");
-        
+
         // Size mode
         const char* size_label = "Auto";
         switch (state.process_options.size_mode) {
@@ -893,7 +896,7 @@ void MainWindow::render_batch_confirm_dialog() {
         ImGui::Spacing();
 
         float button_w = 120.0f * state.dpi_scale;
-        
+
         if (ImGui::Button("Process", ImVec2(button_w, 0))) {
             state.batch.show_confirm_dialog = false;
             m_controller.start_batch_processing();
@@ -961,7 +964,7 @@ void MainWindow::action_close_file() {
 
 void MainWindow::action_process() {
     auto& state = m_controller.state();
-    
+
     if (state.batch.is_batch_mode()) {
         // Batch mode: show confirmation dialog
         state.batch.show_confirm_dialog = true;

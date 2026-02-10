@@ -19,6 +19,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -109,6 +110,35 @@ int run(int argc, char** argv) {
     SDL_SetWindowMinimumSize(window, kMinWidth, kMinHeight);
     spdlog::info("Window minimum size: {}x{}", kMinWidth, kMinHeight);
 
+    // Clamp window size to usable screen area (avoid window larger than display)
+    {
+        int display_index = SDL_GetDisplayForWindow(window);
+        SDL_Rect display_bounds;
+        
+        if (display_index >= 0 && SDL_GetDisplayUsableBounds(display_index, &display_bounds)) {
+            int current_w, current_h;
+            SDL_GetWindowSize(window, &current_w, &current_h);
+            
+            // Use 95% of screen as max to leave some margin for taskbar etc.
+            int max_w = static_cast<int>(display_bounds.w * 0.95f);
+            int max_h = static_cast<int>(display_bounds.h * 0.95f);
+            
+            // Also respect minimum size
+            int actual_w = std::clamp(current_w, kMinWidth, max_w);
+            int actual_h = std::clamp(current_h, kMinHeight, max_h);
+            
+            // Only resize if needed
+            if (actual_w != current_w || actual_h != current_h) {
+                SDL_SetWindowSize(window, actual_w, actual_h);
+                spdlog::info("Window clamped to {}x{} (screen usable: {}x{})",
+                             actual_w, actual_h, display_bounds.w, display_bounds.h);
+            }
+            
+            // Center window on screen
+            SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        }
+    }
+
     // Initialize backend with window
     if (!backend->init(window)) {
         spdlog::error("Failed to initialize backend: {}", to_string(backend->last_error()));
@@ -126,6 +156,7 @@ int run(int argc, char** argv) {
 
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.IniFilename = nullptr;  // Disable imgui.ini - we manage window state ourselves
     // Note: Docking requires imgui[docking] feature in vcpkg
 
     // Handle HiDPI scaling
