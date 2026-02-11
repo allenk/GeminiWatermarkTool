@@ -211,7 +211,7 @@ int run_simple_mode(int argc, char** argv) {
 
         for (int i = 1; i < argc; ++i) {
             std::string arg = argv[i];
-            
+
             // Skip banner flags
             if (arg == "--banner" || arg == "--no-banner") {
                 continue;
@@ -265,9 +265,9 @@ int run(int argc, char** argv) {
     // Banner control flags (parsed manually above, but registered for --help)
     bool banner_show = false;
     bool banner_hide = false;
-    app.add_flag("--banner", banner_show, 
+    app.add_flag("--banner", banner_show,
                  "Show ASCII banner (default: auto-detect based on TTY)");
-    app.add_flag("--no-banner", banner_hide, 
+    app.add_flag("--no-banner", banner_hide,
                  "Hide ASCII banner (useful for scripts and AI agents)");
 
     // Input/Output paths

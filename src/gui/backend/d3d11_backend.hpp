@@ -104,6 +104,10 @@ private:
         TextureDesc desc;
     };
 
+    // DXGI objects - factory kept alive for consistent swap chain operations
+    wil::com_ptr<IDXGIFactory2> m_factory;
+    wil::com_ptr<IDXGIAdapter1> m_adapter;
+
     // D3D11 objects (using wil::com_ptr for automatic release)
     wil::com_ptr<ID3D11Device> m_device;
     wil::com_ptr<ID3D11DeviceContext> m_context;
@@ -119,6 +123,7 @@ private:
     int m_window_width{0};
     int m_window_height{0};
     bool m_initialized{false};
+    bool m_using_warp{false};
     
     // Feature level info
     D3D_FEATURE_LEVEL m_feature_level{D3D_FEATURE_LEVEL_11_0};

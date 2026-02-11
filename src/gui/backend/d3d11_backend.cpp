@@ -8,6 +8,13 @@
  * Uses WIL (Windows Implementation Libraries) for:
  * - wil::com_ptr: Modern COM smart pointer with better semantics than WRL
  * - HRESULT error handling macros
+ *
+ * Cooperative design:
+ * - is_available() only checks DLL + adapter enumeration (zero device creation)
+ * - init() uses factory-first flow: CreateDXGIFactory1 -> EnumAdapters -> CreateDevice
+ * - No DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH (we never need mode switching)
+ * - MakeWindowAssociation with NO_WINDOW_CHANGES | NO_ALT_ENTER
+ * - WARP fallback for VM/RDP environments
  */
 
 #ifdef _WIN32
@@ -35,61 +42,44 @@ namespace gwt::gui {
 // =============================================================================
 
 bool D3D11Backend::is_available() noexcept {
+    // Lightweight check: verify DLL presence and DXGI adapter enumeration only.
+    // Does NOT create any D3D11 device — zero side effects on the graphics stack.
     try {
-        wil::com_ptr<ID3D11Device> device;
-        wil::com_ptr<ID3D11DeviceContext> context;
-        D3D_FEATURE_LEVEL feature_level;
+        // Check if d3d11.dll is loadable
+        HMODULE d3d11_dll = LoadLibraryW(L"d3d11.dll");
+        if (!d3d11_dll) {
+            spdlog::debug("D3D11: d3d11.dll not found");
+            return false;
+        }
+        FreeLibrary(d3d11_dll);
 
-        UINT flags = 0;
-#if defined(DEBUG) || defined(_DEBUG)
-        flags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
-
-        D3D_FEATURE_LEVEL feature_levels[] = {
-            D3D_FEATURE_LEVEL_11_1,
-            D3D_FEATURE_LEVEL_11_0,
-            D3D_FEATURE_LEVEL_10_1,
-            D3D_FEATURE_LEVEL_10_0,
-        };
-
-        // Try hardware first
-        HRESULT hr = D3D11CreateDevice(
-            nullptr,
-            D3D_DRIVER_TYPE_HARDWARE,
-            nullptr,
-            flags,
-            feature_levels,
-            _countof(feature_levels),
-            D3D11_SDK_VERSION,
-            &device,
-            &feature_level,
-            &context
-        );
-
-        if (SUCCEEDED(hr)) {
-            return true;
+        // Check if we can enumerate at least one DXGI adapter
+        wil::com_ptr<IDXGIFactory1> factory;
+        HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+        if (FAILED(hr)) {
+            spdlog::debug("D3D11: Failed to create DXGI factory: 0x{:08X}",
+                          static_cast<unsigned>(hr));
+            return false;
         }
 
-        // Try WARP (Windows Advanced Rasterization Platform) as fallback
-        hr = D3D11CreateDevice(
-            nullptr,
-            D3D_DRIVER_TYPE_WARP,
-            nullptr,
-            flags,
-            feature_levels,
-            _countof(feature_levels),
-            D3D11_SDK_VERSION,
-            &device,
-            &feature_level,
-            &context
-        );
-
-        if (SUCCEEDED(hr)) {
-            spdlog::info("D3D11: Hardware not available, WARP fallback available");
-            return true;
+        wil::com_ptr<IDXGIAdapter1> adapter;
+        hr = factory->EnumAdapters1(0, &adapter);
+        if (FAILED(hr)) {
+            spdlog::debug("D3D11: No DXGI adapters found");
+            return false;
         }
 
-        return false;
+        // Log adapter info for diagnostics
+        DXGI_ADAPTER_DESC1 desc;
+        if (SUCCEEDED(adapter->GetDesc1(&desc))) {
+            char name[128];
+            WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1,
+                                name, sizeof(name), nullptr, nullptr);
+            spdlog::debug("D3D11: Primary adapter: {} (VRAM: {} MB)",
+                          name, desc.DedicatedVideoMemory / (1024 * 1024));
+        }
+
+        return true;
     } catch (...) {
         return false;
     }
@@ -135,26 +125,34 @@ bool D3D11Backend::init(SDL_Window* window) {
     // Get window size
     SDL_GetWindowSizeInPixels(window, &m_window_width, &m_window_height);
 
-    // Setup swap chain description
-    DXGI_SWAP_CHAIN_DESC1 sd = {};
-    sd.Width = m_window_width;
-    sd.Height = m_window_height;
-    sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.Stereo = FALSE;
-    sd.SampleDesc.Count = 1;
-    sd.SampleDesc.Quality = 0;
-    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.BufferCount = 2;
-    sd.Scaling = DXGI_SCALING_STRETCH;
-    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    sd.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+    // =========================================================================
+    // Step 1: Create DXGI Factory (the single source of truth)
+    // =========================================================================
+    HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&m_factory));
+    if (FAILED(hr)) {
+        spdlog::error("D3D11: Failed to create DXGI factory: 0x{:08X}",
+                      static_cast<unsigned>(hr));
+        set_error(BackendError::InitFailed);
+        return false;
+    }
 
-    // Create device and swap chain
-    UINT create_device_flags = 0;
-#if defined(DEBUG) || defined(_DEBUG)
-    create_device_flags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
+    // =========================================================================
+    // Step 2: Enumerate adapter from our factory
+    // =========================================================================
+    hr = m_factory->EnumAdapters1(0, &m_adapter);
+    if (FAILED(hr)) {
+        spdlog::error("D3D11: Failed to enumerate adapters: 0x{:08X}",
+                      static_cast<unsigned>(hr));
+        set_error(BackendError::InitFailed);
+        return false;
+    }
+
+    // =========================================================================
+    // Step 3: Create D3D11 device using the enumerated adapter
+    // =========================================================================
+    // Note: Never use D3D11_CREATE_DEVICE_DEBUG in production builds.
+    // For debugging, use external tools like PIX or RenderDoc instead.
+    constexpr UINT create_device_flags = 0;
 
     D3D_FEATURE_LEVEL feature_levels[] = {
         D3D_FEATURE_LEVEL_11_1,
@@ -163,10 +161,10 @@ bool D3D11Backend::init(SDL_Window* window) {
         D3D_FEATURE_LEVEL_10_0,
     };
 
-    // First, create the device
-    HRESULT hr = D3D11CreateDevice(
-        nullptr,
-        D3D_DRIVER_TYPE_HARDWARE,
+    // When using an explicit adapter, driver type must be D3D_DRIVER_TYPE_UNKNOWN
+    hr = D3D11CreateDevice(
+        m_adapter.get(),
+        D3D_DRIVER_TYPE_UNKNOWN,
         nullptr,
         create_device_flags,
         feature_levels,
@@ -177,9 +175,13 @@ bool D3D11Backend::init(SDL_Window* window) {
         &m_context
     );
 
-    // Fallback to WARP if hardware fails
     if (FAILED(hr)) {
-        spdlog::warn("D3D11: Hardware device creation failed, trying WARP");
+        spdlog::warn("D3D11: Hardware device creation failed (0x{:08X}), trying WARP",
+                     static_cast<unsigned>(hr));
+
+        // WARP fallback: release hardware adapter, use nullptr for WARP
+        m_adapter.reset();
+
         hr = D3D11CreateDevice(
             nullptr,
             D3D_DRIVER_TYPE_WARP,
@@ -192,56 +194,75 @@ bool D3D11Backend::init(SDL_Window* window) {
             &m_feature_level,
             &m_context
         );
+
+        if (FAILED(hr)) {
+            spdlog::error("D3D11: Failed to create device (including WARP): 0x{:08X}",
+                          static_cast<unsigned>(hr));
+            set_error(BackendError::InitFailed);
+            return false;
+        }
+
+        m_using_warp = true;
+        spdlog::info("D3D11: Using WARP software renderer");
     }
 
-    if (FAILED(hr)) {
-        spdlog::error("D3D11: Failed to create device: 0x{:08X}", static_cast<unsigned>(hr));
-        set_error(BackendError::InitFailed);
-        return false;
-    }
+    // =========================================================================
+    // Step 4: Create swap chain using our factory (not device-derived factory)
+    // =========================================================================
+    // Cooperative windowed mode: no ALLOW_MODE_SWITCH, no exclusive flags.
+    // We are a tool application, not a game — never need mode switching.
+    DXGI_SWAP_CHAIN_DESC1 sd = {};
+    sd.Width = m_window_width;
+    sd.Height = m_window_height;
+    sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    sd.Stereo = FALSE;
+    sd.SampleDesc.Count = 1;
+    sd.SampleDesc.Quality = 0;
+    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.BufferCount = 2;
+    sd.Scaling = DXGI_SCALING_STRETCH;
+    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    sd.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+    sd.Flags = 0;  // No ALLOW_MODE_SWITCH — cooperative mode only
 
-    // Get DXGI factory from device
-    auto dxgi_device = m_device.query<IDXGIDevice>();
-    if (!dxgi_device) {
-        spdlog::error("D3D11: Failed to get DXGI device");
-        set_error(BackendError::InitFailed);
-        return false;
-    }
-
-    wil::com_ptr<IDXGIAdapter> adapter;
-    hr = dxgi_device->GetAdapter(&adapter);
-    if (FAILED(hr)) {
-        spdlog::error("D3D11: Failed to get DXGI adapter");
-        set_error(BackendError::InitFailed);
-        return false;
-    }
-
-    wil::com_ptr<IDXGIFactory2> factory;
-    hr = adapter->GetParent(IID_PPV_ARGS(&factory));
-    if (FAILED(hr)) {
-        spdlog::error("D3D11: Failed to get DXGI factory");
-        set_error(BackendError::InitFailed);
-        return false;
-    }
-
-    // Create swap chain
-    hr = factory->CreateSwapChainForHwnd(
+    hr = m_factory->CreateSwapChainForHwnd(
         m_device.get(),
         m_hwnd,
         &sd,
-        nullptr,
-        nullptr,
+        nullptr,    // No fullscreen desc
+        nullptr,    // No restrict to output
         &m_swap_chain
     );
 
     if (FAILED(hr)) {
-        spdlog::error("D3D11: Failed to create swap chain: 0x{:08X}", static_cast<unsigned>(hr));
+        spdlog::error("D3D11: Failed to create swap chain: 0x{:08X}",
+                      static_cast<unsigned>(hr));
         set_error(BackendError::InitFailed);
         return false;
     }
 
-    // Disable ALT+ENTER fullscreen toggle
-    factory->MakeWindowAssociation(m_hwnd, DXGI_MWA_NO_ALT_ENTER);
+    // =========================================================================
+    // Step 5: Disable all DXGI window interference
+    // =========================================================================
+    // NO_WINDOW_CHANGES: prevent DXGI from monitoring window for focus changes
+    //                    and automatically attempting fullscreen transitions
+    // NO_ALT_ENTER:      prevent ALT+ENTER fullscreen toggle
+    // This ensures we never interfere with other applications' DXGI state.
+    m_factory->MakeWindowAssociation(
+        m_hwnd,
+        DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER
+    );
+
+    // =========================================================================
+    // Step 6: Limit frame latency for lower GPU resource footprint
+    // =========================================================================
+    auto dxgi_device = m_device.query<IDXGIDevice1>();
+    if (dxgi_device) {
+        // Default is 3 — reduce to 1 so we don't queue excessive frames.
+        // This minimizes our GPU present queue occupancy, leaving more
+        // headroom for other applications (media players, games, etc.)
+        dxgi_device->SetMaximumFrameLatency(1);
+    }
 
     // Create render target view
     if (!create_render_target()) {
@@ -250,20 +271,29 @@ bool D3D11Backend::init(SDL_Window* window) {
         return false;
     }
 
+    // =========================================================================
     // Log D3D11 info
-    DXGI_ADAPTER_DESC adapter_desc;
-    adapter->GetDesc(&adapter_desc);
+    // =========================================================================
+    if (m_using_warp) {
+        spdlog::info("D3D11 initialized (WARP):");
+        spdlog::info("  Adapter: Microsoft Basic Render Driver");
+    } else {
+        DXGI_ADAPTER_DESC1 adapter_desc;
+        m_adapter->GetDesc1(&adapter_desc);
 
-    char adapter_name[128];
-    WideCharToMultiByte(CP_UTF8, 0, adapter_desc.Description, -1,
-                        adapter_name, sizeof(adapter_name), nullptr, nullptr);
+        char adapter_name[128];
+        WideCharToMultiByte(CP_UTF8, 0, adapter_desc.Description, -1,
+                            adapter_name, sizeof(adapter_name), nullptr, nullptr);
 
-    spdlog::info("D3D11 initialized:");
-    spdlog::info("  Adapter: {}", adapter_name);
+        spdlog::info("D3D11 initialized:");
+        spdlog::info("  Adapter: {}", adapter_name);
+        spdlog::info("  Dedicated VRAM: {} MB",
+                     adapter_desc.DedicatedVideoMemory / (1024 * 1024));
+    }
+
     spdlog::info("  Feature Level: {}.{}",
                  (m_feature_level >> 12) & 0xF,
                  (m_feature_level >> 8) & 0xF);
-    spdlog::info("  Dedicated VRAM: {} MB", adapter_desc.DedicatedVideoMemory / (1024 * 1024));
 
     m_initialized = true;
     clear_error();
@@ -273,20 +303,31 @@ bool D3D11Backend::init(SDL_Window* window) {
 void D3D11Backend::shutdown() {
     if (!m_initialized) return;
 
-    // Destroy all textures
+    // Destroy all textures first
     m_textures.clear();
 
     // Cleanup render target
     cleanup_render_target();
 
-    // Release D3D11 objects (wil::com_ptr handles release automatically)
+    // Ensure GPU has finished all pending work before releasing resources.
+    // ClearState unbinds all resources from the pipeline,
+    // Flush waits for the GPU command queue to drain.
+    if (m_context) {
+        m_context->ClearState();
+        m_context->Flush();
+    }
+
+    // Release in reverse order of creation
     m_swap_chain.reset();
     m_context.reset();
     m_device.reset();
+    m_adapter.reset();
+    m_factory.reset();
 
     m_window = nullptr;
     m_hwnd = nullptr;
     m_initialized = false;
+    m_using_warp = false;
 
     spdlog::debug("D3D11 backend shutdown complete");
 }
@@ -376,17 +417,18 @@ void D3D11Backend::on_resize(int width, int height) {
     cleanup_render_target();
     m_context->Flush();
 
-    // Resize swap chain buffers
+    // Resize swap chain buffers — flags = 0 (cooperative, no mode switch)
     HRESULT hr = m_swap_chain->ResizeBuffers(
-        0,  // Keep current buffer count
+        0,                      // Keep current buffer count
         m_window_width,
         m_window_height,
-        DXGI_FORMAT_UNKNOWN,  // Keep current format
-        DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH
+        DXGI_FORMAT_UNKNOWN,    // Keep current format
+        0                       // No flags — matches swap chain creation
     );
 
     if (FAILED(hr)) {
-        spdlog::error("D3D11: Failed to resize swap chain: 0x{:08X}", static_cast<unsigned>(hr));
+        spdlog::error("D3D11: Failed to resize swap chain: 0x{:08X}",
+                      static_cast<unsigned>(hr));
         return;
     }
 
@@ -486,7 +528,8 @@ D3D11Backend::create_texture(const TextureDesc& desc, std::span<const uint8_t> d
     );
 
     if (FAILED(hr)) {
-        spdlog::error("D3D11: Failed to create texture: 0x{:08X}", static_cast<unsigned>(hr));
+        spdlog::error("D3D11: Failed to create texture: 0x{:08X}",
+                      static_cast<unsigned>(hr));
         set_error(BackendError::TextureCreationFailed);
         return TextureHandle{};
     }
@@ -502,7 +545,8 @@ D3D11Backend::create_texture(const TextureDesc& desc, std::span<const uint8_t> d
     hr = m_device->CreateShaderResourceView(texture.get(), &srv_desc, &srv);
 
     if (FAILED(hr)) {
-        spdlog::error("D3D11: Failed to create SRV: 0x{:08X}", static_cast<unsigned>(hr));
+        spdlog::error("D3D11: Failed to create SRV: 0x{:08X}",
+                      static_cast<unsigned>(hr));
         set_error(BackendError::TextureCreationFailed);
         return TextureHandle{};
     }
@@ -599,6 +643,9 @@ void* D3D11Backend::get_imgui_texture_id(TextureHandle handle) const {
 // =============================================================================
 
 std::string_view D3D11Backend::name() const noexcept {
+    if (m_using_warp) {
+        return "Direct3D 11 (WARP)";
+    }
     switch (m_feature_level) {
         case D3D_FEATURE_LEVEL_11_1: return "Direct3D 11.1";
         case D3D_FEATURE_LEVEL_11_0: return "Direct3D 11.0";
