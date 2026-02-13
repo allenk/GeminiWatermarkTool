@@ -505,6 +505,8 @@ void MainWindow::render_toolbar() {
     const float scale = m_controller.state().dpi_scale;
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f * scale, 6.0f * scale));
 
+    ImGui::Separator();
+
     if (ImGui::Button("Open")) {
         action_open_file();
     }
@@ -515,9 +517,6 @@ void MainWindow::render_toolbar() {
         action_save_file();
     }
     ImGui::EndDisabled();
-    ImGui::SameLine();
-
-    ImGui::Separator();
     ImGui::SameLine();
 
     ImGui::BeginDisabled(!m_controller.state().can_process());
@@ -795,18 +794,20 @@ void MainWindow::render_status_bar() {
         ImGuiWindowFlags_NoSavedSettings;
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    float height = ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.y * scale;
+    float height = ImGui::GetFrameHeight() + 8.0f * scale;  // match render()
 
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x, viewport->WorkPos.y + viewport->WorkSize.y - height));
     ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x, height));
 
     ImGui::Begin("StatusBar", nullptr, flags);
 
-    // Vertical centering: add padding
+    // Vertical centering
     float text_height = ImGui::GetTextLineHeight();
-    float padding_y = (height - text_height) * 0.5f - ImGui::GetStyle().WindowPadding.y;
-    if (padding_y > 0) {
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + padding_y);
+    float window_padding_y = ImGui::GetStyle().WindowPadding.y;
+    float inner_height = height - window_padding_y * 2.0f;
+    float offset_y = (inner_height - text_height) * 0.5f;
+    if (offset_y > 0) {
+        ImGui::SetCursorPosY(window_padding_y + offset_y);
     }
 
     // Status message

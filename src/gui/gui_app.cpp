@@ -178,6 +178,14 @@ int run(int argc, char** argv) {
     // Note: Docking requires imgui[docking] feature in vcpkg
 
     // Handle HiDPI scaling
+    // Two independent scaling factors:
+    //   dpi_scale:  System UI scaling (Windows 125%/150%, Linux fractional)
+    //               macOS always returns 1.0 here (Retina is not UI scaling)
+    //   fb_scale:   Framebuffer pixel ratio (macOS Retina = 2.0, others = 1.0)
+    //               ImGui renders at fb_scale resolution via DisplayFramebufferScale
+    //
+    // Font atlas must be rasterized at (dpi_scale × fb_scale) to be pixel-perfect,
+    // then FontGlobalScale = 1/fb_scale shrinks it back in layout space.
     float dpi_scale = 1.0f;
     int display_index = SDL_GetDisplayForWindow(window);
     if (display_index >= 0) {
@@ -190,9 +198,24 @@ int run(int argc, char** argv) {
         spdlog::info("Display DPI scale: {:.2f}", dpi_scale);
     }
 
-    // Scale font size based on DPI
+    // Detect framebuffer scale (Retina = 2.0, normal = 1.0)
+    float fb_scale = 1.0f;
+    {
+        int win_w, win_h, pixel_w, pixel_h;
+        SDL_GetWindowSize(window, &win_w, &win_h);
+        SDL_GetWindowSizeInPixels(window, &pixel_w, &pixel_h);
+        if (win_w > 0) {
+            fb_scale = static_cast<float>(pixel_w) / static_cast<float>(win_w);
+        }
+        spdlog::info("Framebuffer scale: {:.2f} (window: {}x{}, pixels: {}x{})",
+                     fb_scale, win_w, win_h, pixel_w, pixel_h);
+    }
+
+    // Scale font size based on DPI and framebuffer scale
+    // Font atlas is rasterized at full resolution, then FontGlobalScale
+    // shrinks it back so layout stays in logical points.
     float base_font_size = 16.0f;
-    float scaled_font_size = base_font_size * dpi_scale;
+    float scaled_font_size = base_font_size * dpi_scale * fb_scale;
 
     // Clear existing fonts
     io.Fonts->Clear();
@@ -295,7 +318,7 @@ int run(int argc, char** argv) {
             spdlog::info("Trying font: {}", font_path);
 
             // if non pixel font, we plus 2 to size to make it visually similar
-            scaled_font_size += 2 * dpi_scale;
+            scaled_font_size += 2 * dpi_scale * fb_scale;
             font_config.SizePixels = scaled_font_size;
 
             loaded_font = io.Fonts->AddFontFromFileTTF(
@@ -324,6 +347,15 @@ int run(int argc, char** argv) {
     // Build font atlas
     io.Fonts->Build();
     spdlog::info("Font atlas built successfully");
+
+    // On HiDPI (Retina), the font atlas is rasterized at 2x but layout
+    // must remain in logical points. FontGlobalScale compensates.
+    if (fb_scale > 1.0f) {
+        io.FontGlobalScale = 1.0f / fb_scale;
+        spdlog::info("FontGlobalScale: {:.2f} (compensating {}x framebuffer)",
+                     io.FontGlobalScale, fb_scale);
+    }
+
     // Scale ImGui style
     ImGuiStyle& style = ImGui::GetStyle();
     style.ScaleAllSizes(dpi_scale);
