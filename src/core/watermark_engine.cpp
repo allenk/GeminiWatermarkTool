@@ -20,6 +20,8 @@
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 #include <stdexcept>
+#include <atomic>
+#include <chrono>
 
 namespace gwt {
 
@@ -465,6 +467,250 @@ void WatermarkEngine::add_watermark_custom(
                  pos.x, pos.y, region.width, region.height);
 
     add_watermark_alpha_blend(image, custom_alpha, pos, logo_value_);
+}
+
+// =============================================================================
+// Guided Multi-Scale Detection (Snap Engine)
+// =============================================================================
+
+GuidedDetectionResult WatermarkEngine::guided_detect(
+    const cv::Mat& image,
+    const cv::Rect& search_rect,
+    std::atomic<bool>* cancel_flag,
+    int min_size,
+    int max_size) const
+{
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    GuidedDetectionResult result{};
+
+    if (image.empty() || search_rect.width < 8 || search_rect.height < 8) {
+        return result;
+    }
+
+    // Clamp search rect to image bounds
+    cv::Rect search = search_rect & cv::Rect(0, 0, image.cols, image.rows);
+    if (search.width < 8 || search.height < 8) {
+        return result;
+    }
+
+    // Clamp min/max to sensible range
+    min_size = std::max(min_size, 16);
+    max_size = std::min(max_size, std::min(search.width, search.height));
+    if (min_size > max_size) {
+        spdlog::debug("guided_detect: min_size {} > max_size {}, no search possible",
+                      min_size, max_size);
+        return result;
+    }
+
+    // =========================================================================
+    // Size preference factor
+    //
+    // NCC has an inherent bias toward smaller templates: a 24x24 patch can
+    // trivially find a high-correlation match within any watermark region.
+    // To counter this, we weight scores by a size factor that prefers
+    // templates closer to the known standard size (96px).
+    //
+    //   adjusted_score = raw_ncc * sqrt(scale / kReferenceSize)
+    //
+    // This ensures a 96x96 match at NCC=0.30 beats a 24x24 match at NCC=0.58.
+    // =========================================================================
+    constexpr double kReferenceSize = 96.0;
+
+    auto size_adjusted_score = [&](double raw_ncc, int scale) -> double {
+        double weight = std::sqrt(static_cast<double>(scale) / kReferenceSize);
+        weight = std::min(weight, 1.0);  // Cap at 1.0 for scales >= 96
+        return raw_ncc * weight;
+    };
+
+    // Extract grayscale search region
+    cv::Mat search_region = image(search);
+    cv::Mat gray_region;
+    if (search_region.channels() >= 3) {
+        cv::cvtColor(search_region, gray_region, cv::COLOR_BGR2GRAY);
+    } else {
+        gray_region = search_region.clone();
+    }
+    cv::Mat gray_f;
+    gray_region.convertTo(gray_f, CV_32F, 1.0 / 255.0);
+
+    // Use alpha_map_large_ (96x96) as template source for best quality
+    const cv::Mat& source_alpha = alpha_map_large_;
+
+    // =========================================================================
+    // Phase 1: Coarse search — large steps for quick scan
+    // =========================================================================
+    struct Candidate {
+        cv::Point position;       // Position within search region
+        int scale;                // Template size
+        double raw_score;         // Raw NCC score
+        double adjusted_score;    // Size-adjusted score
+    };
+
+    constexpr int kCoarseScaleStep = 8;
+    constexpr int kTopK = 5;
+
+    std::vector<Candidate> coarse_candidates;
+    coarse_candidates.reserve(kTopK);
+
+    // Generate scale list
+    std::vector<int> coarse_scales;
+    for (int s = min_size; s <= max_size; s += kCoarseScaleStep) {
+        coarse_scales.push_back(s);
+    }
+    // Always include the exact standard sizes if in range
+    for (int std_size : {48, 96}) {
+        if (std_size >= min_size && std_size <= max_size) {
+            bool already_present = false;
+            for (int s : coarse_scales) {
+                if (std::abs(s - std_size) <= 2) { already_present = true; break; }
+            }
+            if (!already_present) coarse_scales.push_back(std_size);
+        }
+    }
+    std::sort(coarse_scales.begin(), coarse_scales.end());
+
+    result.total_scales = static_cast<int>(coarse_scales.size());
+
+    spdlog::debug("guided_detect: searching {} scales [{}-{}] in {}x{} region",
+                  coarse_scales.size(), min_size, max_size,
+                  search.width, search.height);
+
+    for (int scale : coarse_scales) {
+        // Check cancellation
+        if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) {
+            result.was_cancelled = true;
+            spdlog::debug("guided_detect: cancelled at scale {}", scale);
+            break;
+        }
+
+        // Template must fit within search region
+        if (scale > gray_f.cols || scale > gray_f.rows) {
+            result.scales_searched++;
+            continue;
+        }
+
+        // Resize alpha template to current scale
+        cv::Mat tmpl;
+        cv::resize(source_alpha, tmpl, cv::Size(scale, scale), 0, 0,
+                   scale > source_alpha.cols ? cv::INTER_LINEAR : cv::INTER_AREA);
+
+        // NCC template matching
+        cv::Mat match_result;
+        cv::matchTemplate(gray_f, tmpl, match_result, cv::TM_CCOEFF_NORMED);
+
+        // Find best match at this scale
+        double min_val, max_val;
+        cv::Point min_loc, max_loc;
+        cv::minMaxLoc(match_result, &min_val, &max_val, &min_loc, &max_loc);
+
+        result.scales_searched++;
+
+        double adj = size_adjusted_score(max_val, scale);
+
+        spdlog::debug("  scale {:3d}: raw_ncc={:.3f} adjusted={:.3f}", scale, max_val, adj);
+
+        if (adj > 0.08) {  // Minimal threshold for coarse phase (on adjusted score)
+            Candidate c{max_loc, scale, max_val, adj};
+
+            // Insert into sorted top-K by adjusted score
+            if (static_cast<int>(coarse_candidates.size()) < kTopK) {
+                coarse_candidates.push_back(c);
+                std::sort(coarse_candidates.begin(), coarse_candidates.end(),
+                          [](const Candidate& a, const Candidate& b) {
+                              return a.adjusted_score > b.adjusted_score;
+                          });
+            } else if (adj > coarse_candidates.back().adjusted_score) {
+                coarse_candidates.back() = c;
+                std::sort(coarse_candidates.begin(), coarse_candidates.end(),
+                          [](const Candidate& a, const Candidate& b) {
+                              return a.adjusted_score > b.adjusted_score;
+                          });
+            }
+        }
+    }
+
+    if (coarse_candidates.empty()) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - start_time).count();
+        spdlog::info("guided_detect: no candidates found in {} us ({} scales)",
+                     elapsed, result.scales_searched);
+        return result;
+    }
+
+    spdlog::debug("guided_detect: top {} coarse candidates:", coarse_candidates.size());
+    for (const auto& c : coarse_candidates) {
+        spdlog::debug("  scale={} pos=({},{}) raw={:.3f} adj={:.3f}",
+                      c.scale, c.position.x, c.position.y, c.raw_score, c.adjusted_score);
+    }
+
+    // =========================================================================
+    // Phase 2: Fine refinement around top candidates
+    // =========================================================================
+    constexpr int kFineScaleStep = 2;
+    constexpr int kFineScaleRange = 10;  // +/- 10 pixels around candidate scale
+
+    Candidate best{cv::Point(0, 0), 0, -1.0, -1.0};
+
+    for (const auto& candidate : coarse_candidates) {
+        if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) {
+            result.was_cancelled = true;
+            break;
+        }
+
+        // Refine scale around candidate
+        int scale_lo = std::max(min_size, candidate.scale - kFineScaleRange);
+        int scale_hi = std::min(max_size, candidate.scale + kFineScaleRange);
+
+        for (int s = scale_lo; s <= scale_hi; s += kFineScaleStep) {
+            if (s > gray_f.cols || s > gray_f.rows) continue;
+
+            cv::Mat tmpl;
+            cv::resize(source_alpha, tmpl, cv::Size(s, s), 0, 0,
+                       s > source_alpha.cols ? cv::INTER_LINEAR : cv::INTER_AREA);
+
+            cv::Mat match_result;
+            cv::matchTemplate(gray_f, tmpl, match_result, cv::TM_CCOEFF_NORMED);
+
+            double min_val, max_val;
+            cv::Point min_loc, max_loc;
+            cv::minMaxLoc(match_result, &min_val, &max_val, &min_loc, &max_loc);
+
+            double adj = size_adjusted_score(max_val, s);
+            if (adj > best.adjusted_score) {
+                best = Candidate{max_loc, s, max_val, adj};
+            }
+        }
+    }
+
+    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::high_resolution_clock::now() - start_time).count();
+
+    if (best.adjusted_score > 0.08) {
+        // Convert position from search-region-relative to image-absolute
+        result.found = true;
+        result.confidence = static_cast<float>(best.adjusted_score);
+        result.raw_ncc = static_cast<float>(best.raw_score);
+        result.match_rect = cv::Rect(
+            search.x + best.position.x,
+            search.y + best.position.y,
+            best.scale, best.scale
+        );
+        result.detected_size = best.scale;
+
+        spdlog::info("guided_detect: found at ({},{}) size {}x{} "
+                     "raw_ncc={:.3f} adjusted={:.3f} "
+                     "in {} us ({} coarse scales, {} candidates refined)",
+                     result.match_rect.x, result.match_rect.y,
+                     best.scale, best.scale,
+                     best.raw_score, best.adjusted_score,
+                     elapsed, result.scales_searched,
+                     coarse_candidates.size());
+    } else {
+        spdlog::info("guided_detect: no match above threshold in {} us", elapsed);
+    }
+
+    return result;
 }
 
 ProcessResult process_image(

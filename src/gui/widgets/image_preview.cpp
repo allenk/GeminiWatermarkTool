@@ -540,7 +540,8 @@ void ImagePreview::render_image() {
 
 void ImagePreview::draw_custom_rect_with_anchors(ImDrawList* draw_list) {
     auto& state = m_controller.state();
-    const auto& cr = state.custom_watermark.region;
+    const auto& cw = state.custom_watermark;
+    const auto& cr = cw.region;
 
     float x = static_cast<float>(cr.x);
     float y = static_cast<float>(cr.y);
@@ -557,10 +558,10 @@ void ImagePreview::draw_custom_rect_with_anchors(ImDrawList* draw_list) {
     ImVec2 mr = ImVec2(br.x, (tl.y + br.y) * 0.5f);
 
     // Color based on state
-    ImU32 rect_color = state.custom_watermark.is_drawing
+    ImU32 rect_color = cw.is_drawing
         ? IM_COL32(255, 255, 0, 200)      // Yellow while drawing
-        : IM_COL32(0, 200, 255, 200);     // Cyan for custom region
-    ImU32 fill_color = IM_COL32(0, 200, 255, 30);
+        : IM_COL32(0, 150, 255, 200);     // Blue for search region
+    ImU32 fill_color = IM_COL32(0, 150, 255, 20);
     ImU32 anchor_color = IM_COL32(255, 255, 255, 255);
     ImU32 anchor_border = IM_COL32(0, 100, 200, 255);
 
@@ -570,23 +571,85 @@ void ImagePreview::draw_custom_rect_with_anchors(ImDrawList* draw_list) {
     // Border
     draw_list->AddRect(tl, br, rect_color, 0, 0, 2.0f);
 
-    // Label
-    const char* label = "Custom Watermark";
+    // Label - "Search Region" for the outer box
+    const char* label = cw.snap_result.has_value() ? "Search Region" : "Custom Watermark";
     draw_outlined_text(draw_list,
         ImVec2(tl.x, tl.y - ImGui::GetTextLineHeight() - 2),
         rect_color, label);
 
-    // Size label inside
+    // Size label inside the search box
     char size_text[64];
     snprintf(size_text, sizeof(size_text), "%dx%d", cr.width, cr.height);
     ImVec2 size_text_sz = ImGui::CalcTextSize(size_text);
-    draw_outlined_text(draw_list,
-        ImVec2((tl.x + br.x - size_text_sz.x) * 0.5f,
-               (tl.y + br.y - size_text_sz.y) * 0.5f),
-        IM_COL32(255, 255, 255, 240), size_text);
+
+    // Only show size text in search box if no snap result to avoid clutter
+    if (!cw.snap_result.has_value()) {
+        draw_outlined_text(draw_list,
+            ImVec2((tl.x + br.x - size_text_sz.x) * 0.5f,
+                   (tl.y + br.y - size_text_sz.y) * 0.5f),
+            IM_COL32(255, 255, 255, 240), size_text);
+    }
+
+    // =========================================================================
+    // Draw snap result inner box (if available)
+    // =========================================================================
+    if (cw.snap_result.has_value()) {
+        const auto& snap = *cw.snap_result;
+
+        if (snap.snap_found) {
+            float sx = static_cast<float>(snap.snapped_rect.x);
+            float sy = static_cast<float>(snap.snapped_rect.y);
+            float sw = static_cast<float>(snap.snapped_rect.width);
+            float sh = static_cast<float>(snap.snapped_rect.height);
+
+            ImVec2 snap_tl = image_to_screen(sx, sy);
+            ImVec2 snap_br = image_to_screen(sx + sw, sy + sh);
+
+            // Color based on confidence
+            ImU32 snap_color;
+            ImU32 snap_fill;
+            const char* confidence_label;
+
+            if (snap.snap_confidence >= 0.3f) {
+                snap_color = IM_COL32(0, 230, 64, 230);    // Green: high confidence
+                snap_fill  = IM_COL32(0, 230, 64, 35);
+                confidence_label = "HIGH";
+            } else if (snap.snap_confidence >= 0.1f) {
+                snap_color = IM_COL32(255, 200, 0, 230);   // Yellow: low confidence
+                snap_fill  = IM_COL32(255, 200, 0, 30);
+                confidence_label = "LOW";
+            } else {
+                snap_color = IM_COL32(255, 80, 80, 200);   // Red: very low
+                snap_fill  = IM_COL32(255, 80, 80, 20);
+                confidence_label = "WEAK";
+            }
+
+            // Snap region fill and border
+            draw_list->AddRectFilled(snap_tl, snap_br, snap_fill);
+            draw_list->AddRect(snap_tl, snap_br, snap_color, 0, 0, 2.5f);
+
+            // Snap label above the inner box
+            char snap_label[128];
+            snprintf(snap_label, sizeof(snap_label), "Snap: %dx%d (%.0f%% %s)",
+                     snap.detected_size, snap.detected_size,
+                     snap.snap_confidence * 100.0f, confidence_label);
+            draw_outlined_text(draw_list,
+                ImVec2(snap_tl.x, snap_tl.y - ImGui::GetTextLineHeight() - 2),
+                snap_color, snap_label);
+
+        } else {
+            // Snap was attempted but nothing found — show text in center
+            const char* no_match = "No match";
+            ImVec2 nm_sz = ImGui::CalcTextSize(no_match);
+            draw_outlined_text(draw_list,
+                ImVec2((tl.x + br.x - nm_sz.x) * 0.5f,
+                       (tl.y + br.y - nm_sz.y) * 0.5f),
+                IM_COL32(255, 100, 100, 220), no_match);
+        }
+    }
 
     // Don't draw anchors while actively drawing
-    if (state.custom_watermark.is_drawing) return;
+    if (cw.is_drawing) return;
 
     // Draw anchor points (8 points: corners + edge midpoints)
     auto draw_anchor = [&](ImVec2 pos) {
@@ -754,8 +817,14 @@ void ImagePreview::handle_custom_rect_interaction() {
             }
 
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                // Trigger snap when user finishes moving the search box
+                bool was_body_drag = (cw.active_anchor == AnchorPoint::Body);
                 cw.is_resizing = false;
                 cw.active_anchor = AnchorPoint::None;
+
+                if (was_body_drag) {
+                    m_controller.snap_to_watermark();
+                }
             }
         }
     }
@@ -804,6 +873,9 @@ void ImagePreview::handle_custom_rect_interaction() {
             cw.is_drawing = false;
             if (rw < 4 || rh < 4) {
                 cw.has_region = false;
+            } else {
+                // User finished drawing a search box — trigger auto-snap
+                m_controller.snap_to_watermark();
             }
         }
     }

@@ -172,14 +172,20 @@ void AppController::process_current() {
         bool is_custom = (m_state.process_options.size_mode == WatermarkSizeMode::Custom) &&
                          m_state.custom_watermark.has_region;
 
+        // For custom mode, use the effective rect (snap result if available,
+        // otherwise the user's drawn region)
+        cv::Rect effective_region = m_state.custom_watermark.effective_rect();
+
         // Apply watermark operation
         if (m_state.process_options.remove_mode) {
             if (is_custom) {
                 m_engine->remove_watermark_custom(
                     m_state.image.processed,
-                    m_state.custom_watermark.region
+                    effective_region
                 );
-                spdlog::info("Watermark removed (custom region)");
+                spdlog::info("Watermark removed (custom region: ({},{}) {}x{})",
+                             effective_region.x, effective_region.y,
+                             effective_region.width, effective_region.height);
             } else {
                 m_engine->remove_watermark(
                     m_state.image.processed,
@@ -191,9 +197,11 @@ void AppController::process_current() {
             if (is_custom) {
                 m_engine->add_watermark_custom(
                     m_state.image.processed,
-                    m_state.custom_watermark.region
+                    effective_region
                 );
-                spdlog::info("Watermark added (custom region)");
+                spdlog::info("Watermark added (custom region: ({},{}) {}x{})",
+                             effective_region.x, effective_region.y,
+                             effective_region.width, effective_region.height);
             } else {
                 m_engine->add_watermark(
                     m_state.image.processed,
@@ -308,17 +316,18 @@ void AppController::set_custom_region(const cv::Rect& region) {
     m_state.custom_watermark.has_region = true;
     m_state.process_options.custom_region = clamped;
 
+    // Clear previous snap result when region changes
+    m_state.custom_watermark.clear_snap();
+
     // Update watermark info to reflect custom region
     update_watermark_info();
-
-    //spdlog::info("Custom watermark region set: ({},{}) {}x{}",
-    //             clamped.x, clamped.y, clamped.width, clamped.height);
 }
 
 void AppController::detect_custom_watermark() {
     if (!m_state.image.has_image()) return;
 
     m_state.custom_watermark.detection_attempted = true;
+    m_state.custom_watermark.clear_snap();  // Clear previous snap
     m_state.status_message = "Detecting watermark...";
 
     // Run detection
@@ -357,6 +366,78 @@ void AppController::detect_custom_watermark() {
         }
         spdlog::info("Detection: not found, using fallback: ({},{}) {}x{}",
                      fallback.x, fallback.y, fallback.width, fallback.height);
+    }
+
+    update_watermark_info();
+}
+
+void AppController::snap_to_watermark() {
+    if (!m_state.image.has_image()) return;
+    if (!m_state.custom_watermark.has_region) return;
+    if (!m_engine) return;
+
+    auto& cw = m_state.custom_watermark;
+    const cv::Rect& search_rect = cw.region;
+
+    // Warn about large search regions
+    int area = search_rect.width * search_rect.height;
+    if (area > 600 * 600) {
+        m_state.status_message = "Very large region. Consider narrowing selection.";
+        spdlog::warn("Snap: search region {}x{} is very large", search_rect.width, search_rect.height);
+    } else if (area > 300 * 300) {
+        m_state.status_message = "Searching... (large region)";
+    } else {
+        m_state.status_message = "Searching...";
+    }
+
+    cw.snap_in_progress = true;
+
+    // Determine scale range based on image size
+    // Standard sizes: 48 for <=1024, 96 for >1024
+    // Allow generous range for resized images
+    int min_size = 32;
+    int max_size = std::min(160, std::min(search_rect.width, search_rect.height));
+
+    // Run guided detection
+    GuidedDetectionResult det = m_engine->guided_detect(
+        m_state.image.original, search_rect, nullptr, min_size, max_size);
+
+    cw.snap_in_progress = false;
+
+    if (det.found) {
+        SnapResult snap;
+        snap.snapped_rect = det.match_rect;
+        snap.snap_confidence = det.confidence;
+        snap.snap_found = true;
+        snap.detected_size = det.detected_size;
+        cw.snap_result = snap;
+
+        // Also update the process options to use snap result
+        m_state.process_options.custom_region = det.match_rect;
+
+        m_state.status_message = fmt::format(
+            "Snapped to ({},{}) {}x{} | Confidence: {:.0f}%",
+            det.match_rect.x, det.match_rect.y,
+            det.detected_size, det.detected_size,
+            det.confidence * 100.0f);
+
+        spdlog::info("Snap successful: ({},{}) {}x{} adjusted={:.2f} raw_ncc={:.2f}",
+                     det.match_rect.x, det.match_rect.y,
+                     det.detected_size, det.detected_size,
+                     det.confidence, det.raw_ncc);
+    } else {
+        cw.snap_result = SnapResult{};  // Empty result, snap_found = false
+
+        if (det.was_cancelled) {
+            m_state.status_message = "Search cancelled";
+        } else {
+            m_state.status_message = fmt::format(
+                "No watermark found in region ({} scales searched)",
+                det.scales_searched);
+        }
+
+        spdlog::info("Snap: no match found (scales_searched={}, cancelled={})",
+                     det.scales_searched, det.was_cancelled);
     }
 
     update_watermark_info();

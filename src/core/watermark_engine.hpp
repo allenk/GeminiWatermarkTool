@@ -4,6 +4,7 @@
 #include <string>
 #include <optional>
 #include <filesystem>
+#include <atomic>
 
 namespace gwt {
 
@@ -28,6 +29,22 @@ struct DetectionResult {
     float spatial_score;     // Stage 1: Spatial NCC score
     float gradient_score;    // Stage 2: Gradient NCC score  
     float variance_score;    // Stage 3: Variance analysis score
+};
+
+/**
+ * Guided detection result (multi-scale search within user-specified region)
+ */
+struct GuidedDetectionResult {
+    bool found{false};           // Whether a match was found
+    float confidence{0.0f};      // Size-adjusted score (for decision making)
+    float raw_ncc{0.0f};         // Raw NCC score (before size adjustment)
+    cv::Rect match_rect;         // Best match position and size (image coords)
+    int detected_size{0};        // Detected watermark size in pixels
+    bool was_cancelled{false};   // Search was cancelled by user
+
+    // Search stats
+    int scales_searched{0};      // Number of scales tested
+    int total_scales{0};         // Total scales planned
 };
 
 /**
@@ -119,6 +136,31 @@ public:
     DetectionResult detect_watermark(
         const cv::Mat& image,
         std::optional<WatermarkSize> force_size = std::nullopt
+    ) const;
+
+    /**
+     * Guided multi-scale watermark detection within a user-specified region
+     *
+     * Uses coarse-to-fine NCC template matching:
+     *   Phase 1 (coarse): Large scale/position steps, find top candidates
+     *   Phase 2 (fine):   Refine around top candidates with pixel precision
+     *
+     * The search resizes the alpha map template to multiple scales and
+     * performs NCC matching at each scale within the search region.
+     *
+     * @param image         The image to search
+     * @param search_rect   User-drawn search region (image coordinates)
+     * @param cancel_flag   Atomic flag to request cancellation (optional)
+     * @param min_size      Minimum watermark size to search (default: 32)
+     * @param max_size      Maximum watermark size to search (default: 160)
+     * @return              Guided detection result with best match
+     */
+    GuidedDetectionResult guided_detect(
+        const cv::Mat& image,
+        const cv::Rect& search_rect,
+        std::atomic<bool>* cancel_flag = nullptr,
+        int min_size = 32,
+        int max_size = 160
     ) const;
 
     /**

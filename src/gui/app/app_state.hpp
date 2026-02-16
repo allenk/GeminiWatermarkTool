@@ -75,10 +75,21 @@ enum class AnchorPoint {
 };
 
 /**
+ * Snap result from guided multi-scale detection
+ */
+struct SnapResult {
+    cv::Rect snapped_rect{0, 0, 0, 0};   // Precise watermark position and size
+    float snap_confidence{0.0f};           // NCC confidence score
+    bool snap_found{false};                // Whether a match was found
+    int detected_size{0};                  // Detected watermark size in pixels
+};
+
+/**
  * State for custom watermark mode interaction
  */
 struct CustomWatermarkState {
     // The custom watermark region (in image pixel coordinates)
+    // This is the user's search box / manually drawn rect
     cv::Rect region{0, 0, 0, 0};
 
     // Whether the region has been set
@@ -97,6 +108,10 @@ struct CustomWatermarkState {
     // Detection confidence (0.0 = fallback, 1.0 = high confidence)
     float detection_confidence{0.0f};
 
+    // Snap result (from guided multi-scale detection)
+    std::optional<SnapResult> snap_result;
+    bool snap_in_progress{false};           // Snap search is running
+
     void clear() {
         region = cv::Rect{0, 0, 0, 0};
         has_region = false;
@@ -105,6 +120,24 @@ struct CustomWatermarkState {
         is_resizing = false;
         active_anchor = AnchorPoint::None;
         detection_confidence = 0.0f;
+        snap_result.reset();
+        snap_in_progress = false;
+    }
+
+    void clear_snap() {
+        snap_result.reset();
+        snap_in_progress = false;
+    }
+
+    /**
+     * Get the effective rect for processing.
+     * Uses snap result if available, otherwise uses user's region.
+     */
+    [[nodiscard]] cv::Rect effective_rect() const noexcept {
+        if (snap_result && snap_result->snap_found) {
+            return snap_result->snapped_rect;
+        }
+        return region;
     }
 
     [[nodiscard]] int width() const noexcept { return region.width; }

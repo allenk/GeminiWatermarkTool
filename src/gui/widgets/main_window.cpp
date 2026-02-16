@@ -581,10 +581,15 @@ void MainWindow::render_control_panel() {
         ImGui::Indent();
 
         if (state.custom_watermark.has_region) {
-            // Re-detect button
+            // Re-detect button (full-image detection)
             if (ImGui::SmallButton("Re-detect")) {
                 state.custom_watermark.detection_attempted = false;
                 m_controller.detect_custom_watermark();
+            }
+            ImGui::SameLine();
+            // Snap button (multi-scale search within region)
+            if (ImGui::SmallButton("Snap")) {
+                m_controller.snap_to_watermark();
             }
             ImGui::SameLine();
             if (ImGui::SmallButton("Reset")) {
@@ -592,13 +597,36 @@ void MainWindow::render_control_panel() {
                 m_controller.detect_custom_watermark();
             }
 
-            // Show confidence
-            if (state.custom_watermark.detection_confidence > 0.0f) {
+            // Show snap result info
+            if (state.custom_watermark.snap_result.has_value()) {
+                const auto& snap = *state.custom_watermark.snap_result;
+                if (snap.snap_found) {
+                    // Color based on confidence level
+                    ImVec4 color;
+                    if (snap.snap_confidence >= 0.3f) {
+                        color = ImVec4(0.1f, 0.9f, 0.25f, 1.0f);  // Green
+                    } else if (snap.snap_confidence >= 0.1f) {
+                        color = ImVec4(1.0f, 0.8f, 0.0f, 1.0f);   // Yellow
+                    } else {
+                        color = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);   // Red
+                    }
+                    ImGui::TextColored(color,
+                        "Snap: %dx%d at (%d,%d) %.0f%%",
+                        snap.detected_size, snap.detected_size,
+                        snap.snapped_rect.x, snap.snapped_rect.y,
+                        snap.snap_confidence * 100.0f);
+                } else {
+                    ImGui::TextColored(
+                        ImVec4(0.8f, 0.4f, 0.2f, 1.0f),
+                        "No watermark found in region");
+                }
+            } else if (state.custom_watermark.detection_confidence > 0.0f) {
+                // Legacy detection confidence display (no snap yet)
                 ImGui::TextColored(
                     ImVec4(0.3f, 0.8f, 0.3f, 1.0f),
                     "Confidence: %.0f%%",
                     state.custom_watermark.detection_confidence * 100.0f);
-            } else {
+            } else if (!state.custom_watermark.snap_result.has_value()) {
                 ImGui::TextColored(
                     ImVec4(0.8f, 0.6f, 0.2f, 1.0f),
                     "Fallback position");
@@ -622,11 +650,17 @@ void MainWindow::render_control_panel() {
         ImGui::Text("  (%d, %d)", info.position.x, info.position.y);
 
         if (info.is_custom) {
-            ImGui::Text("Region:");
-            ImGui::Text("  (%d,%d)-(%d,%d)",
-                       info.region.x, info.region.y,
-                       info.region.x + info.region.width,
-                       info.region.y + info.region.height);
+            // Show effective rect (snap or user region)
+            cv::Rect eff = state.custom_watermark.effective_rect();
+            bool using_snap = state.custom_watermark.snap_result.has_value()
+                           && state.custom_watermark.snap_result->snap_found;
+
+            ImGui::Text("Region%s:", using_snap ? " (snapped)" : "");
+            ImGui::Text("  (%d,%d)-(%d,%d) %dx%d",
+                       eff.x, eff.y,
+                       eff.x + eff.width,
+                       eff.y + eff.height,
+                       eff.width, eff.height);
         }
     }
 

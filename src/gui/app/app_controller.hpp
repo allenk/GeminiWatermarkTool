@@ -124,6 +124,15 @@ public:
     void detect_custom_watermark();
 
     /**
+     * Run guided multi-scale snap detection within the current custom region.
+     *
+     * Searches for the watermark template at multiple scales within the
+     * user-drawn search box using coarse-to-fine NCC matching.
+     * Updates snap_result in CustomWatermarkState.
+     */
+    void snap_to_watermark();
+
+    /**
      * Toggle between original and processed preview
      */
     void toggle_preview();
