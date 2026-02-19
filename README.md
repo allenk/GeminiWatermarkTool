@@ -40,10 +40,31 @@ The desktop GUI provides an interactive workflow for both single-image and batch
 
 - Drag & drop or open any supported image
 - Auto-detect watermark size (48×48 / 96×96) or select manually
-- **Custom watermark mode**: draw a region interactively, resize with 8-point anchors, fine-tune position with WASD keys
+- **Custom watermark mode**: draw a search region interactively, resize with 8-point anchors, fine-tune position with WASD keys
+- **Multi-scale guided detection (Snap Engine)**: coarse-to-fine NCC template matching auto-locks to the exact watermark position within your drawn region — supports variable sizes from 24–160px
 - Real-time before/after comparison (press **V**)
 - One-key processing (**X**) and revert (**Z**)
 - Zoom, pan (Space/Alt + drag, mouse wheel), and fit-to-window
+
+### Software Inpainting Cleanup (New in v0.2.3)
+
+![Software Inpainting](artworks/gui_inpaint_sw.gif)
+
+Reverse alpha blending is mathematically exact — but only when the image hasn't been resized, recompressed, or processed after watermarking. In practice, many images go through post-processing that breaks the pixel-perfect math, leaving faint residual artifacts after removal.
+
+**Software Inpainting** addresses this by applying a lightweight cleanup pass after the reverse blending step. It uses gradient-weighted masks derived from the watermark's own alpha channel to target only the residual pixels, leaving the rest of the image untouched.
+
+Three built-in methods are available:
+
+| Method | Description | Best for |
+|--------|-------------|----------|
+| **NS** (default) | Navier-Stokes based inpainting — propagates surrounding pixel flow into the damaged region | General-purpose cleanup with smooth results |
+| **TELEA** | Fast marching method — fills inward from boundary pixels based on distance weighting | Quick processing, good for small residuals |
+| **Soft Inpaint** | Gradient-weighted Gaussian blend — uses the watermark alpha as a soft mask for weighted blending | Preserving fine texture in photographic content |
+
+The cleanup controls appear automatically in **Custom** mode under the Detected Info panel. You can adjust the **method**, **strength** (0–100%), and **inpaint radius** (1–25 px) to fine-tune the result.
+
+> 🔮 **Coming soon**: A future release will introduce **lightweight AI-based inpainting** (DnCNN / FFDNet, ~2 MB models) for even better cleanup of residuals that conventional methods cannot fully resolve. Stay tuned.
 
 ### Batch Processing
 
@@ -554,6 +575,17 @@ original = (watermarked - α × logo) / (1 - α)
 ```
 
 This mathematical inversion produces exact restoration of the original pixels.
+
+### Residual Cleanup (Software Inpainting)
+
+When images have been resized or recompressed after watermarking, the exact math no longer holds perfectly. A gradient-weighted inpainting pass can clean up the residual artifacts:
+
+```
+1. Compute gradient magnitude from watermark alpha channel
+2. Build soft weight mask: stronger where alpha gradient is high
+3. Apply selected inpainting method (NS / TELEA / Gaussian blend)
+4. Blend result using weight mask — only affected pixels are modified
+```
 
 ---
 

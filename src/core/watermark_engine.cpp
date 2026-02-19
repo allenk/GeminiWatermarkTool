@@ -17,6 +17,7 @@
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/photo.hpp>
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 #include <stdexcept>
@@ -711,6 +712,232 @@ GuidedDetectionResult WatermarkEngine::guided_detect(
     }
 
     return result;
+}
+
+// =============================================================================
+// Inpaint Residual Cleanup
+// =============================================================================
+
+void WatermarkEngine::inpaint_residual(
+    cv::Mat& image,
+    const cv::Rect& region,
+    float strength,
+    InpaintMethod method,
+    int inpaint_radius,
+    int padding) const
+{
+    if (image.empty() || region.width < 4 || region.height < 4) {
+        return;
+    }
+
+    strength = std::clamp(strength, 0.0f, 1.0f);
+    if (strength < 0.001f) {
+        return;
+    }
+
+    // =========================================================================
+    // Common: Calculate padded region
+    // =========================================================================
+    cv::Rect padded_rect(
+        region.x - padding,
+        region.y - padding,
+        region.width + padding * 2,
+        region.height + padding * 2
+    );
+    padded_rect &= cv::Rect(0, 0, image.cols, image.rows);
+
+    if (padded_rect.width < 8 || padded_rect.height < 8) {
+        spdlog::warn("inpaint_residual: padded region too small");
+        return;
+    }
+
+    cv::Rect inner_rect(
+        region.x - padded_rect.x,
+        region.y - padded_rect.y,
+        region.width,
+        region.height
+    );
+    inner_rect &= cv::Rect(0, 0, padded_rect.width, padded_rect.height);
+
+    const char* method_name =
+        (method == InpaintMethod::GAUSSIAN) ? "Soft Inpaint" :
+        (method == InpaintMethod::TELEA)    ? "TELEA" : "NS";
+
+    // =========================================================================
+    // GAUSSIAN (Soft Inpaint): gradient weight + boundary feather
+    // =========================================================================
+    if (method == InpaintMethod::GAUSSIAN) {
+        // --- gradient weight (proven effective, unchanged) ---
+
+        // Compute alpha gradient to locate sparkle edges
+        const cv::Mat& source_alpha = alpha_map_large_;
+        cv::Mat alpha_resized;
+        int interp = (region.width > source_alpha.cols)
+            ? cv::INTER_LINEAR : cv::INTER_AREA;
+        cv::resize(source_alpha, alpha_resized,
+                   cv::Size(region.width, region.height), 0, 0, interp);
+
+        cv::Mat grad_x, grad_y, grad_mag;
+        cv::Sobel(alpha_resized, grad_x, CV_32F, 1, 0, 3);
+        cv::Sobel(alpha_resized, grad_y, CV_32F, 0, 1, 3);
+        cv::magnitude(grad_x, grad_y, grad_mag);
+
+        double grad_min, grad_max;
+        cv::minMaxLoc(grad_mag, &grad_min, &grad_max);
+        if (grad_max <= grad_min) {
+            spdlog::info("inpaint_residual: flat gradient, no edges found");
+            return;
+        }
+
+        // Normalize to 0.0-1.0
+        cv::Mat grad_norm = (grad_mag - grad_min) / (grad_max - grad_min);
+
+        // Gamma correction: sqrt expands weak gradient values
+        cv::Mat grad_weight;
+        cv::sqrt(grad_norm, grad_weight);
+
+        // Dilate to cover residual spread (v5 original: 5×5)
+        cv::Mat dk = cv::getStructuringElement(
+            cv::MORPH_ELLIPSE, cv::Size(5, 5));
+        cv::dilate(grad_weight, grad_weight, dk);
+
+        // Smooth weight for natural transitions (v5 original: σ=2.0)
+        cv::GaussianBlur(grad_weight, grad_weight, cv::Size(0, 0), 2.0);
+
+        // Scale by user strength
+        grad_weight *= strength;
+        cv::threshold(grad_weight, grad_weight, 1.0, 1.0, cv::THRESH_TRUNC);
+
+        // --- Smooth boundary transition (replaces v5 hard cutoff) ---
+        // Embed gradient weight into padded coordinate system
+        cv::Mat weight = cv::Mat::zeros(padded_rect.size(), CV_32F);
+        grad_weight.copyTo(weight(inner_rect));
+
+        // Tiny blur to soften the boundary transition
+        // σ=1.0 affects only ~3px at the inner_rect edge
+        // Interior (21px from edge on 42×42) is effectively unchanged
+        // Tips at boundary: weight transitions smoothly instead of hard cutoff
+        cv::GaussianBlur(weight, weight, cv::Size(0, 0), 1.0);
+
+        // --- Gaussian blur the image ---
+        int ksize = inpaint_radius * 2 + 1;
+        if (ksize % 2 == 0) ksize++;
+        ksize = std::max(ksize, 3);
+        double sigma = inpaint_radius * 0.8;
+
+        cv::Mat padded_area = image(padded_rect).clone();
+        cv::Mat blurred;
+        cv::GaussianBlur(padded_area, blurred, cv::Size(ksize, ksize), sigma);
+
+        // --- Per-pixel weighted blend ---
+        cv::Mat dst = image(padded_rect);
+        cv::Mat weight_3ch;
+        cv::merge(std::vector<cv::Mat>{weight, weight, weight}, weight_3ch);
+
+        cv::Mat dst_f, blurred_f, result_f;
+        dst.convertTo(dst_f, CV_32FC3);
+        blurred.convertTo(blurred_f, CV_32FC3);
+
+        cv::Mat one_minus_w = cv::Scalar(1.0, 1.0, 1.0) - weight_3ch;
+        cv::multiply(dst_f, one_minus_w, dst_f);
+        cv::multiply(blurred_f, weight_3ch, blurred_f);
+        result_f = dst_f + blurred_f;
+
+        result_f.convertTo(dst, CV_8UC3);
+
+        int active_pixels = cv::countNonZero(weight > 0.01f);
+        spdlog::info("inpaint_residual: {}, strength={:.0f}%, radius={}, sigma={:.1f}, "
+                     "{} active pixels",
+                     method_name, strength * 100.0f, inpaint_radius, sigma,
+                     active_pixels);
+        return;
+    }
+
+    // =========================================================================
+    // TELEA / NS: Sparse gradient mask + cv::inpaint
+    //
+    // Uses alpha map gradient to identify sparkle edges, creates binary mask,
+    // then runs OpenCV inpaint for structural reconstruction.
+    // These methods are best for edge artifacts on high-contrast boundaries
+    // (e.g. carpet ↔ floor edges that Gaussian blur would smear).
+    // =========================================================================
+
+    // Compute alpha gradient to locate sparkle edges
+    const cv::Mat& source_alpha = alpha_map_large_;
+    cv::Mat alpha_resized;
+    int interp = (region.width > source_alpha.cols) ? cv::INTER_LINEAR : cv::INTER_AREA;
+    cv::resize(source_alpha, alpha_resized,
+               cv::Size(region.width, region.height), 0, 0, interp);
+
+    cv::Mat grad_x, grad_y, grad_mag;
+    cv::Sobel(alpha_resized, grad_x, CV_32F, 1, 0, 3);
+    cv::Sobel(alpha_resized, grad_y, CV_32F, 0, 1, 3);
+    cv::magnitude(grad_x, grad_y, grad_mag);
+
+    // Normalize to 0-255
+    double grad_min, grad_max;
+    cv::minMaxLoc(grad_mag, &grad_min, &grad_max);
+    if (grad_max <= grad_min) {
+        spdlog::info("inpaint_residual: flat gradient, no edges found");
+        return;
+    }
+
+    cv::Mat grad_u8;
+    grad_mag.convertTo(grad_u8, CV_8U,
+                       255.0 / (grad_max - grad_min),
+                       -grad_min * 255.0 / (grad_max - grad_min));
+
+    // Create sparse binary mask at sparkle edges
+    cv::Mat sparse_mask;
+    cv::threshold(grad_u8, sparse_mask, 20, 255, cv::THRESH_BINARY);
+
+    // Dilate to cover residual spread (1-2px beyond gradient peak)
+    cv::Mat dilate_kernel = cv::getStructuringElement(
+        cv::MORPH_ELLIPSE, cv::Size(5, 5));
+    cv::dilate(sparse_mask, sparse_mask, dilate_kernel);
+
+    int masked_pixels = cv::countNonZero(sparse_mask);
+    if (masked_pixels == 0) {
+        spdlog::info("inpaint_residual: no edge pixels found, skipping");
+        return;
+    }
+
+    spdlog::info("inpaint_residual: {} sparse mask {}/{} pixels ({:.1f}%), "
+                 "strength={:.0f}%",
+                 method_name, masked_pixels, region.width * region.height,
+                 100.0f * masked_pixels / (region.width * region.height),
+                 strength * 100.0f);
+
+    // Embed mask into padded coordinate system
+    cv::Mat mask = cv::Mat::zeros(padded_rect.size(), CV_8UC1);
+    sparse_mask.copyTo(mask(inner_rect));
+
+    // Run cv::inpaint
+    cv::Mat padded_area = image(padded_rect).clone();
+    int cv_method = (method == InpaintMethod::TELEA)
+        ? cv::INPAINT_TELEA
+        : cv::INPAINT_NS;
+
+    cv::Mat inpainted;
+    cv::inpaint(padded_area, mask, inpainted, inpaint_radius, cv_method);
+
+    // Blend at masked pixels only (unmasked pixels stay untouched)
+    cv::Mat dst = image(padded_rect);
+    cv::Mat src_inner = dst(inner_rect);
+    cv::Mat inp_inner = inpainted(inner_rect);
+    cv::Mat mask_inner = mask(inner_rect);
+
+    if (strength >= 0.999f) {
+        inp_inner.copyTo(src_inner, mask_inner);
+    } else {
+        cv::Mat blended;
+        cv::addWeighted(src_inner, 1.0 - strength, inp_inner, strength, 0.0, blended);
+        blended.copyTo(src_inner, mask_inner);
+    }
+
+    spdlog::info("inpaint_residual: applied {} at {:.0f}% strength, radius={}, "
+                 "{} pixels repaired",
+                 method_name, strength * 100.0f, inpaint_radius, masked_pixels);
 }
 
 ProcessResult process_image(

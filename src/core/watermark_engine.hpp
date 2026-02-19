@@ -79,6 +79,15 @@ WatermarkPosition get_watermark_config(int image_width, int image_height);
 WatermarkSize get_watermark_size(int image_width, int image_height);
 
 /**
+ * Inpaint method for residual cleanup after reverse alpha blend
+ */
+enum class InpaintMethod {
+    GAUSSIAN,   // Soft-blend: continuous gradient mask + Gaussian blur (recommended)
+    TELEA,      // OpenCV: Fast Marching Method (Telea, 2004)
+    NS          // OpenCV: Navier-Stokes (Bertalmio et al., 2001)
+};
+
+/**
  * Main watermark engine class
  *
  * Uses background captures to dynamically calculate alpha maps.
@@ -211,6 +220,34 @@ public:
      * Get the alpha map for a specific size (for external use)
      */
     const cv::Mat& get_alpha_map(WatermarkSize size) const;
+
+    /**
+     * Apply inpaint cleanup on residual artifacts after reverse alpha blend.
+     *
+     * Uses SPARSE MASK derived from alpha map gradient — only repairs the
+     * sparkle edge pixels where interpolation broke the math, leaving
+     * correctly-restored pixels untouched.
+     *
+     * Two-stage pipeline:
+     *   1. Reverse alpha blend removes ~90% of watermark (mathematical precision)
+     *   2. This function cleans the remaining edge artifacts using cv::inpaint
+     *
+     * @param image       Image after reverse alpha blend (modified in-place)
+     * @param region      The watermark region (where reverse alpha was applied)
+     * @param strength    Blend strength: 0.0 = keep reverse-alpha result,
+     *                                    1.0 = fully replace with inpainted result
+     * @param method      Inpaint method (TELEA or NS)
+     * @param inpaint_radius  Inpaint radius for cv::inpaint (default: 3)
+     * @param padding     Context padding around region in pixels (default: 16)
+     */
+    void inpaint_residual(
+        cv::Mat& image,
+        const cv::Rect& region,
+        float strength = 0.85f,
+        InpaintMethod method = InpaintMethod::NS,
+        int inpaint_radius = 10,
+        int padding = 32
+    ) const;
 
 private:
     cv::Mat alpha_map_small_;   // 48x48 alpha map (CV_32FC1, 0.0-1.0)

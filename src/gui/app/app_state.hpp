@@ -202,6 +202,18 @@ struct ImageState {
 // =============================================================================
 
 /**
+ * Inpaint cleanup options (applied after reverse alpha blend)
+ */
+struct InpaintOptions {
+    bool enabled{true};                              // Enable inpaint cleanup
+    float strength{0.85f};                           // Blend: 0=reverse-only, 1=full effect
+    InpaintMethod method{InpaintMethod::NS};          // Cleanup method (NS default)
+    int inpaint_radius{10};                           // Blur/inpaint radius
+
+    static constexpr int kPadding = 32;              // Context padding (covers weight spread)
+};
+
+/**
  * Processing options
  */
 struct ProcessOptions {
@@ -209,6 +221,7 @@ struct ProcessOptions {
     WatermarkSizeMode size_mode{WatermarkSizeMode::Auto};
     std::optional<WatermarkSize> force_size;  // Override auto-detection (for Auto/Small/Large)
     std::optional<cv::Rect> custom_region;    // Custom watermark region
+    InpaintOptions inpaint;                   // Inpaint cleanup options
 };
 
 // =============================================================================

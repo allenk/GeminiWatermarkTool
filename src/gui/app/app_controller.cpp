@@ -193,6 +193,35 @@ void AppController::process_current() {
                 );
                 spdlog::info("Watermark removed");
             }
+
+            // Step 2: Inpaint residual cleanup (if enabled)
+            const auto& inpaint_opts = m_state.process_options.inpaint;
+            if (inpaint_opts.enabled && inpaint_opts.strength > 0.001f) {
+                // Determine the region for inpaint
+                cv::Rect inpaint_region;
+                if (is_custom) {
+                    inpaint_region = effective_region;
+                } else {
+                    // Standard mode: use the detected watermark position
+                    auto config = get_watermark_config(
+                        m_state.image.width, m_state.image.height);
+                    auto pos = config.get_position(
+                        m_state.image.width, m_state.image.height);
+                    inpaint_region = cv::Rect(
+                        pos.x, pos.y, config.logo_size, config.logo_size);
+                }
+
+                m_engine->inpaint_residual(
+                    m_state.image.processed,
+                    inpaint_region,
+                    inpaint_opts.strength,
+                    inpaint_opts.method,
+                    inpaint_opts.inpaint_radius,
+                    InpaintOptions::kPadding
+                );
+                spdlog::info("Inpaint cleanup applied (strength={:.0f}%)",
+                             inpaint_opts.strength * 100.0f);
+            }
         } else {
             if (is_custom) {
                 m_engine->add_watermark_custom(
@@ -216,9 +245,18 @@ void AppController::process_current() {
         update_display_image();
 
         m_state.state = ProcessState::Completed;
-        m_state.status_message = m_state.process_options.remove_mode
-            ? "Watermark removed"
-            : "Watermark added";
+        if (m_state.process_options.remove_mode) {
+            const auto& inpaint_opts = m_state.process_options.inpaint;
+            if (inpaint_opts.enabled && inpaint_opts.strength > 0.001f) {
+                m_state.status_message = fmt::format(
+                    "Watermark removed + inpaint ({:.0f}%)",
+                    inpaint_opts.strength * 100.0f);
+            } else {
+                m_state.status_message = "Watermark removed";
+            }
+        } else {
+            m_state.status_message = "Watermark added";
+        }
         m_state.error_message.clear();
 
     } catch (const std::exception& e) {

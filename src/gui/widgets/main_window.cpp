@@ -662,6 +662,72 @@ void MainWindow::render_control_panel() {
                        eff.y + eff.height,
                        eff.width, eff.height);
         }
+
+        // Inpaint cleanup controls — only in Custom remove mode
+        if (opts.remove_mode && info.is_custom) {
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                ImVec4(0.35f, 0.85f, 0.75f, 1.0f));  // Teal/cyan
+            ImGui::Text("Cleanup");
+            ImGui::PopStyleColor();
+            ImGui::Separator();
+
+            auto& inpaint = state.process_options.inpaint;
+
+            bool enabled = inpaint.enabled;
+            if (ImGui::Checkbox("Inpaint residual", &enabled)) {
+                inpaint.enabled = enabled;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Clean up residual artifacts after watermark removal.\n"
+                    "Most effective on resized images where interpolation\n"
+                    "breaks the exact alpha-pixel relationship.\n\n"
+                    "NS / TELEA: OpenCV inpaint (edge reconstruction)\n"
+                    "Soft Inpaint: Gradient-guided Gaussian blur");
+            }
+
+            if (inpaint.enabled) {
+                // Method selector (first — determines behavior)
+                const char* methods[] = { "NS", "TELEA", "Soft Inpaint" };
+                int method_idx = 0;
+                if (inpaint.method == InpaintMethod::NS) method_idx = 0;
+                else if (inpaint.method == InpaintMethod::TELEA) method_idx = 1;
+                else method_idx = 2;  // GAUSSIAN
+
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::Combo("##inpaint_method", &method_idx, methods, 3)) {
+                    switch (method_idx) {
+                        case 0:  inpaint.method = InpaintMethod::NS;       break;
+                        case 1:  inpaint.method = InpaintMethod::TELEA;    break;
+                        default: inpaint.method = InpaintMethod::GAUSSIAN; break;
+                    }
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "NS: Navier-Stokes fluid dynamics (recommended)\n"
+                        "TELEA: Fast marching method\n"
+                        "Soft Inpaint: Gradient-guided Gaussian blur\n"
+                        "  (smoother but may blur fine details)");
+                }
+
+                // Strength slider
+                int strength_pct = static_cast<int>(inpaint.strength * 100.0f + 0.5f);
+                strength_pct = ((strength_pct + 2) / 5) * 5;
+
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::SliderInt("##inpaint_strength", &strength_pct, 0, 100,
+                                     "Strength: %d%%")) {
+                    strength_pct = ((strength_pct + 2) / 5) * 5;
+                    inpaint.strength = static_cast<float>(strength_pct) / 100.0f;
+                }
+
+                // Radius slider
+                ImGui::SetNextItemWidth(-1);
+                ImGui::SliderInt("##inpaint_radius", &inpaint.inpaint_radius, 1, 25,
+                                "Radius: %d px");
+            }
+        }
     }
 
     // Detection threshold (always visible for batch, optional for single)

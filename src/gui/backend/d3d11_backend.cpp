@@ -220,7 +220,7 @@ bool D3D11Backend::init(SDL_Window* window) {
     sd.SampleDesc.Quality = 0;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.BufferCount = 2;
-    sd.Scaling = DXGI_SCALING_STRETCH;
+    sd.Scaling = DXGI_SCALING_NONE;
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     sd.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
     sd.Flags = 0;  // No ALLOW_MODE_SWITCH — cooperative mode only
