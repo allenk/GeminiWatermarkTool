@@ -403,21 +403,26 @@ void D3D11Backend::end_frame() {
 }
 
 void D3D11Backend::present() {
-    // Present with vsync
-    m_swap_chain->Present(1, 0);
+    // During resize: present immediately (sync=0) to push frame to DWM before
+    // it composites stale content. Normal frames use vsync (sync=1).
+    UINT sync_interval = m_in_resize ? 0 : 1;
+    m_swap_chain->Present(sync_interval, 0);
+    m_in_resize = false;
 }
 
 void D3D11Backend::on_resize(int width, int height) {
     if (!m_initialized || width <= 0 || height <= 0) return;
+    if (m_window_width == width && m_window_height == height) return;
 
-    // Get actual drawable size
-    SDL_GetWindowSizeInPixels(m_window, &m_window_width, &m_window_height);
+    m_window_width = width;
+    m_window_height = height;
 
-    // Release render target before resize
+    // Release render target before resize (required by DXGI)
     cleanup_render_target();
-    m_context->Flush();
 
-    // Resize swap chain buffers — flags = 0 (cooperative, no mode switch)
+    // Resize swap chain buffers — no Flush() needed; ResizeBuffers handles
+    // outstanding GPU work internally. Removing Flush() avoids a CPU stall
+    // that widens the window where DWM composites stale content.
     HRESULT hr = m_swap_chain->ResizeBuffers(
         0,                      // Keep current buffer count
         m_window_width,
@@ -434,6 +439,10 @@ void D3D11Backend::on_resize(int width, int height) {
 
     // Recreate render target
     create_render_target();
+
+    // Signal present() to use immediate mode (skip vsync) so the resized
+    // frame reaches DWM before it composites the stale front buffer.
+    m_in_resize = true;
 }
 
 // =============================================================================

@@ -384,13 +384,11 @@ int run(int argc, char** argv) {
     auto event_watch = [](void* userdata, SDL_Event* event) -> bool {
         auto* ctx = static_cast<RenderContext*>(userdata);
 
-        if (event->type == SDL_EVENT_WINDOW_RESIZED ||
-            event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
+        if (event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
             event->type == SDL_EVENT_WINDOW_EXPOSED) {
 
-            // Update backend size
-            if (event->type == SDL_EVENT_WINDOW_RESIZED ||
-                event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+            // Update backend with pixel-accurate size (not logical size from RESIZED)
+            if (event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
                 ctx->backend->on_resize(event->window.data1, event->window.data2);
             }
 
@@ -444,9 +442,8 @@ int run(int argc, char** argv) {
                     }
                     break;
 
-                case SDL_EVENT_WINDOW_RESIZED:
                 case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                    // Resize is handled in event watch callback
+                    // Sync backend to current pixel size
                     backend->on_resize(event.window.data1, event.window.data2);
                     break;
 

@@ -124,6 +124,7 @@ private:
     int m_window_height{0};
     bool m_initialized{false};
     bool m_using_warp{false};
+    bool m_in_resize{false};  // Set during resize → present without vsync
     
     // Feature level info
     D3D_FEATURE_LEVEL m_feature_level{D3D_FEATURE_LEVEL_11_0};
