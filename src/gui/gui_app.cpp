@@ -376,14 +376,19 @@ int run(int argc, char** argv) {
         IRenderBackend* backend;
         MainWindow* main_window;
         SDL_Window* window;
+        bool rendering{false};  // Reentrant guard
     };
 
     RenderContext render_ctx{backend.get(), &main_window, window};
 
     // Event watch callback - called during Windows modal resize loop
+    // Also fires during file dialog modal loops (EXPOSED events), so
+    // a reentrant guard is needed to avoid calling NewFrame() while
+    // the main loop is mid-frame.
     auto event_watch = [](void* userdata, SDL_Event* event) -> bool {
         auto* ctx = static_cast<RenderContext*>(userdata);
 
+        if (ctx->rendering) return true;  // Already mid-frame — skip
         if (event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
             event->type == SDL_EVENT_WINDOW_EXPOSED) {
 
@@ -393,6 +398,7 @@ int run(int argc, char** argv) {
             }
 
             // Render frame immediately
+            ctx->rendering = true;
             ctx->backend->begin_frame();
             ctx->backend->imgui_new_frame();
             ImGui::NewFrame();
@@ -401,6 +407,7 @@ int run(int argc, char** argv) {
             ctx->backend->imgui_render();
             ctx->backend->end_frame();
             ctx->backend->present();
+            ctx->rendering = false;
         }
 
         return true;  // Allow event to be added to queue
@@ -455,6 +462,7 @@ int run(int argc, char** argv) {
         }
 
         // Render frame
+        render_ctx.rendering = true;
         backend->begin_frame();
         backend->imgui_new_frame();
         ImGui::NewFrame();
@@ -463,6 +471,7 @@ int run(int argc, char** argv) {
         backend->imgui_render();
         backend->end_frame();
         backend->present();
+        render_ctx.rendering = false;
     }
 
     // Remove event watch before cleanup
