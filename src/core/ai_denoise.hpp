@@ -11,14 +11,10 @@
  * The model is embedded into the executable via .mem.h headers generated
  * by ncnn2mem, adding ~1.3 MB to the binary size.
  *
- * Inference pipeline:
- *   1. Extract padded ROI from image
- *   2. Convert BGR uint8 -> RGB float [0,1]
- *   3. Create sigma map channel (noise level indicator)
- *   4. Concatenate RGB + sigma -> 4-channel input
- *   5. NCNN inference (Vulkan GPU or CPU fallback)
- *   6. Residual subtraction: clean = input - output
- *   7. Blend with original at user-specified strength
+ * Pipeline:
+ *   1. Compute gradient mask from alpha map (locate sparkle edges)
+ *   2. Run NCNN inference on padded ROI (FDnCNN outputs clean image)
+ *   3. Per-pixel masked blend: only repair edge pixels, leave clean areas intact
  */
 
 #pragma once
@@ -74,17 +70,23 @@ public:
     [[nodiscard]] std::string device_name() const;
 
     /**
-     * Denoise a region of a BGR image
+     * Denoise watermark residual artifacts using gradient-masked AI inference.
+     *
+     * Uses alpha map gradient to locate sparkle edges, runs FDnCNN only on
+     * the padded region, then blends per-pixel: only repairs edge artifacts
+     * while preserving clean background detail.
      *
      * @param image     BGR CV_8UC3 image (modified in-place)
-     * @param region    ROI to denoise (padding added internally for context)
+     * @param region    Watermark region (where reverse alpha blend was applied)
+     * @param alpha_map Alpha map CV_32FC1 [0,1] (will be resized to match region)
      * @param sigma     Noise level 0-75 (higher = more aggressive denoising)
-     * @param strength  Blend factor: 0.0 = keep original, 1.0 = fully denoised
+     * @param strength  Overall strength: 0.0 = keep original, 1.0 = full effect
      * @param padding   Context padding around region in pixels (default: 16)
      */
     void denoise(
         cv::Mat& image,
         const cv::Rect& region,
+        const cv::Mat& alpha_map,
         float sigma = 25.0f,
         float strength = 0.85f,
         int padding = 16

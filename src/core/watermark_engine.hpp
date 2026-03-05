@@ -84,7 +84,10 @@ WatermarkSize get_watermark_size(int image_width, int image_height);
 enum class InpaintMethod {
     GAUSSIAN,   // Soft-blend: continuous gradient mask + Gaussian blur (recommended)
     TELEA,      // OpenCV: Fast Marching Method (Telea, 2004)
-    NS          // OpenCV: Navier-Stokes (Bertalmio et al., 2001)
+    NS,         // OpenCV: Navier-Stokes (Bertalmio et al., 2001)
+#ifdef GWT_HAS_AI_DENOISE
+    AI_DENOISE  // FDnCNN: Neural network residual denoising (NCNN + Vulkan GPU)
+#endif
 };
 
 /**

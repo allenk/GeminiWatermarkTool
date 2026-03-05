@@ -14,6 +14,9 @@
 #include "gui/app/app_state.hpp"
 #include "gui/backend/render_backend.hpp"
 #include "core/watermark_engine.hpp"
+#ifdef GWT_HAS_AI_DENOISE
+#include "core/ai_denoise.hpp"
+#endif
 
 #include <memory>
 #include <filesystem>
@@ -208,10 +211,34 @@ public:
      */
     [[nodiscard]] static bool is_supported_extension(const std::filesystem::path& path);
 
+#ifdef GWT_HAS_AI_DENOISE
+    /**
+     * Check if AI denoiser is available and ready
+     */
+    [[nodiscard]] bool has_ai_denoise() const { return m_denoiser && m_denoiser->is_ready(); }
+
+    /**
+     * Get AI denoiser device description (e.g., "NVIDIA GeForce RTX 4090")
+     */
+    [[nodiscard]] std::string ai_denoise_device() const {
+        return m_denoiser ? m_denoiser->device_name() : "N/A";
+    }
+
+    /**
+     * Check if AI denoiser is using GPU
+     */
+    [[nodiscard]] bool ai_denoise_gpu() const {
+        return m_denoiser && m_denoiser->is_gpu_enabled();
+    }
+#endif
+
 private:
     AppState m_state;
     IRenderBackend& m_backend;
     std::unique_ptr<WatermarkEngine> m_engine;
+#ifdef GWT_HAS_AI_DENOISE
+    std::unique_ptr<NcnnDenoiser> m_denoiser;
+#endif
 
     // Internal helpers
     void update_watermark_info();

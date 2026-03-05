@@ -32,6 +32,15 @@ AppController::AppController(IRenderBackend& backend)
         embedded::bg_96_png, embedded::bg_96_png_size
     );
 
+#ifdef GWT_HAS_AI_DENOISE
+    // Initialize AI denoiser (Vulkan GPU with CPU fallback)
+    m_denoiser = std::make_unique<NcnnDenoiser>();
+    if (!m_denoiser->initialize()) {
+        spdlog::warn("AI denoiser initialization failed, feature disabled");
+        m_denoiser.reset();
+    }
+#endif
+
     spdlog::debug("AppController initialized");
 }
 
@@ -211,14 +220,30 @@ void AppController::process_current() {
                         pos.x, pos.y, config.logo_size, config.logo_size);
                 }
 
-                m_engine->inpaint_residual(
-                    m_state.image.processed,
-                    inpaint_region,
-                    inpaint_opts.strength,
-                    inpaint_opts.method,
-                    inpaint_opts.inpaint_radius,
-                    InpaintOptions::kPadding
-                );
+#ifdef GWT_HAS_AI_DENOISE
+                if (inpaint_opts.method == InpaintMethod::AI_DENOISE && m_denoiser) {
+                    // Get alpha map for gradient mask computation
+                    const auto& alpha = m_engine->get_alpha_map(WatermarkSize::Large);
+                    m_denoiser->denoise(
+                        m_state.image.processed,
+                        inpaint_region,
+                        alpha,
+                        inpaint_opts.ai_sigma,
+                        inpaint_opts.strength,
+                        InpaintOptions::kPadding
+                    );
+                } else
+#endif
+                {
+                    m_engine->inpaint_residual(
+                        m_state.image.processed,
+                        inpaint_region,
+                        inpaint_opts.strength,
+                        inpaint_opts.method,
+                        inpaint_opts.inpaint_radius,
+                        InpaintOptions::kPadding
+                    );
+                }
                 spdlog::info("Inpaint cleanup applied (strength={:.0f}%)",
                              inpaint_opts.strength * 100.0f);
             }
@@ -248,9 +273,18 @@ void AppController::process_current() {
         if (m_state.process_options.remove_mode) {
             const auto& inpaint_opts = m_state.process_options.inpaint;
             if (inpaint_opts.enabled && inpaint_opts.strength > 0.001f) {
-                m_state.status_message = fmt::format(
-                    "Watermark removed + inpaint ({:.0f}%)",
-                    inpaint_opts.strength * 100.0f);
+#ifdef GWT_HAS_AI_DENOISE
+                if (inpaint_opts.method == InpaintMethod::AI_DENOISE) {
+                    m_state.status_message = fmt::format(
+                        "Watermark removed + AI denoise (sigma={:.0f}, {:.0f}%)",
+                        inpaint_opts.ai_sigma, inpaint_opts.strength * 100.0f);
+                } else
+#endif
+                {
+                    m_state.status_message = fmt::format(
+                        "Watermark removed + inpaint ({:.0f}%)",
+                        inpaint_opts.strength * 100.0f);
+                }
             } else {
                 m_state.status_message = "Watermark removed";
             }

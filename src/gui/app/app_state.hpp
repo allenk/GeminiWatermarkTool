@@ -208,7 +208,11 @@ struct InpaintOptions {
     bool enabled{true};                              // Enable inpaint cleanup
     float strength{0.85f};                           // Blend: 0=reverse-only, 1=full effect
     InpaintMethod method{InpaintMethod::NS};          // Cleanup method (NS default)
-    int inpaint_radius{10};                           // Blur/inpaint radius
+    int inpaint_radius{10};                           // Blur/inpaint radius (NS/TELEA/GAUSSIAN)
+
+#ifdef GWT_HAS_AI_DENOISE
+    float ai_sigma{50.0f};                           // AI denoise: noise level 0-150
+#endif
 
     static constexpr int kPadding = 32;              // Context padding (covers weight spread)
 };

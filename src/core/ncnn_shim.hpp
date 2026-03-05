@@ -28,6 +28,13 @@
 
 #ifdef GWT_HAS_AI_DENOISE
 
+ // Step 1: Platform-specific Vulkan extensions
+#ifdef __ANDROID__
+#ifndef VK_USE_PLATFORM_ANDROID_KHR
+#define VK_USE_PLATFORM_ANDROID_KHR
+#endif
+#endif
+
 // Step 1: volk provides Vulkan declarations (types, enums, function pointers)
 // Must come before any NCNN header that pulls in Vulkan types.
 #include <volk.h>

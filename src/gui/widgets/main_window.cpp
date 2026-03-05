@@ -684,23 +684,42 @@ void MainWindow::render_control_panel() {
                     "Most effective on resized images where interpolation\n"
                     "breaks the exact alpha-pixel relationship.\n\n"
                     "NS / TELEA: OpenCV inpaint (edge reconstruction)\n"
-                    "Soft Inpaint: Gradient-guided Gaussian blur");
+                    "Soft Inpaint: Gradient-guided Gaussian blur"
+#ifdef GWT_HAS_AI_DENOISE
+                    "\nAI Denoise: FDnCNN neural network (GPU accelerated)"
+#endif
+                );
             }
 
             if (inpaint.enabled) {
-                // Method selector (first — determines behavior)
+                // Method selector
+#ifdef GWT_HAS_AI_DENOISE
+                const bool has_ai = m_controller.has_ai_denoise();
+                const char* methods[] = { "NS", "TELEA", "Soft Inpaint", "AI Denoise" };
+                const int method_count = has_ai ? 4 : 3;
+#else
                 const char* methods[] = { "NS", "TELEA", "Soft Inpaint" };
+                const int method_count = 3;
+#endif
+
                 int method_idx = 0;
                 if (inpaint.method == InpaintMethod::NS) method_idx = 0;
                 else if (inpaint.method == InpaintMethod::TELEA) method_idx = 1;
-                else method_idx = 2;  // GAUSSIAN
+                else if (inpaint.method == InpaintMethod::GAUSSIAN) method_idx = 2;
+#ifdef GWT_HAS_AI_DENOISE
+                else if (inpaint.method == InpaintMethod::AI_DENOISE) method_idx = 3;
+#endif
 
                 ImGui::SetNextItemWidth(-1);
-                if (ImGui::Combo("##inpaint_method", &method_idx, methods, 3)) {
+                if (ImGui::Combo("##inpaint_method", &method_idx, methods, method_count)) {
                     switch (method_idx) {
                         case 0:  inpaint.method = InpaintMethod::NS;       break;
                         case 1:  inpaint.method = InpaintMethod::TELEA;    break;
-                        default: inpaint.method = InpaintMethod::GAUSSIAN; break;
+                        case 2:  inpaint.method = InpaintMethod::GAUSSIAN; break;
+#ifdef GWT_HAS_AI_DENOISE
+                        case 3:  inpaint.method = InpaintMethod::AI_DENOISE; break;
+#endif
+                        default: inpaint.method = InpaintMethod::NS;       break;
                     }
                 }
                 if (ImGui::IsItemHovered()) {
@@ -708,24 +727,61 @@ void MainWindow::render_control_panel() {
                         "NS: Navier-Stokes fluid dynamics (recommended)\n"
                         "TELEA: Fast marching method\n"
                         "Soft Inpaint: Gradient-guided Gaussian blur\n"
-                        "  (smoother but may blur fine details)");
+                        "  (smoother but may blur fine details)"
+#ifdef GWT_HAS_AI_DENOISE
+                        "\nAI Denoise: FDnCNN residual learning\n"
+                        "  (neural network, best quality)"
+#endif
+                    );
                 }
 
-                // Strength slider
+                // Strength slider (always shown)
                 int strength_pct = static_cast<int>(inpaint.strength * 100.0f + 0.5f);
                 strength_pct = ((strength_pct + 2) / 5) * 5;
 
+#ifdef GWT_HAS_AI_DENOISE
+                const int strength_max = (inpaint.method == InpaintMethod::AI_DENOISE) ? 300 : 100;
+#else
+                const int strength_max = 100;
+#endif
+
                 ImGui::SetNextItemWidth(-1);
-                if (ImGui::SliderInt("##inpaint_strength", &strength_pct, 0, 100,
+                if (ImGui::SliderInt("##inpaint_strength", &strength_pct, 0, strength_max,
                                      "Strength: %d%%")) {
                     strength_pct = ((strength_pct + 2) / 5) * 5;
                     inpaint.strength = static_cast<float>(strength_pct) / 100.0f;
                 }
 
-                // Radius slider
-                ImGui::SetNextItemWidth(-1);
-                ImGui::SliderInt("##inpaint_radius", &inpaint.inpaint_radius, 1, 25,
-                                "Radius: %d px");
+#ifdef GWT_HAS_AI_DENOISE
+                if (inpaint.method == InpaintMethod::AI_DENOISE) {
+                    // Sigma slider (AI-specific: controls noise level estimation)
+                    int sigma_int = static_cast<int>(inpaint.ai_sigma + 0.5f);
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::SliderInt("##ai_sigma", &sigma_int, 1, 150,
+                                        "Sigma: %d")) {
+                        inpaint.ai_sigma = static_cast<float>(sigma_int);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Noise level estimation (1-150)\n"
+                            "Low (5-15): subtle cleanup, preserves detail\n"
+                            "Medium (20-55): balanced (recommended)\n"
+                            "High (50-75): aggressive\n"
+                            "Very High (75-150): experimental, beyond training range");
+                    }
+
+                    // Device info
+                    ImGui::TextDisabled("%s %s",
+                        m_controller.ai_denoise_gpu() ? "GPU:" : "CPU:",
+                        m_controller.ai_denoise_device().c_str());
+                } else
+#endif
+                {
+                    // Radius slider (NS/TELEA/GAUSSIAN)
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderInt("##inpaint_radius", &inpaint.inpaint_radius, 1, 25,
+                                    "Radius: %d px");
+                }
             }
         }
     }

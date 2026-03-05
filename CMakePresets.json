@@ -35,7 +35,7 @@
         "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded",
         "BUILD_GUI": "ON",
         "ENABLE_D3D11": "ON",
-        "VCPKG_MANIFEST_FEATURES": "gui;d3d11"
+        "VCPKG_MANIFEST_FEATURES": "gui;d3d11;ai-denoise"
       },
       "generator": "Ninja"
     },
@@ -48,7 +48,8 @@
         "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreadedDebug",
         "BUILD_GUI": "ON",
         "ENABLE_D3D11": "ON",
-        "VCPKG_MANIFEST_FEATURES": "gui;d3d11"
+        "ENABLE_AI_DENOISE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui;d3d11;ai-denoise"
       }
     },
     {
@@ -59,7 +60,8 @@
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_GUI": "ON",
         "ENABLE_D3D11": "ON",
-        "VCPKG_MANIFEST_FEATURES": "gui;d3d11"
+        "ENABLE_AI_DENOISE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui;d3d11;ai-denoise"
       }
     },
     {
@@ -71,7 +73,8 @@
         "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreadedDebug",
         "BUILD_GUI": "ON",
         "ENABLE_D3D11": "OFF",
-        "VCPKG_MANIFEST_FEATURES": "gui"
+        "ENABLE_AI_DENOISE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui;ai-denoise"
       }
     },
     {
@@ -82,7 +85,8 @@
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_GUI": "ON",
         "ENABLE_D3D11": "OFF",
-        "VCPKG_MANIFEST_FEATURES": "gui"
+        "ENABLE_AI_DENOISE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui;ai-denoise"
       }
     },
 
@@ -108,7 +112,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "BUILD_GUI": "ON",
-        "VCPKG_MANIFEST_FEATURES": "gui"
+        "ENABLE_AI_DENOISE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui;ai-denoise"
       }
     },
     {
@@ -118,7 +123,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_GUI": "ON",
-        "VCPKG_MANIFEST_FEATURES": "gui"
+        "ENABLE_AI_DENOISE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui;ai-denoise"
       }
     },
 
@@ -144,7 +150,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "BUILD_GUI": "ON",
-        "VCPKG_MANIFEST_FEATURES": "gui"
+        "ENABLE_AI_DENOISE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui;ai-denoise"
       }
     },
     {
@@ -154,7 +161,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_GUI": "ON",
-        "VCPKG_MANIFEST_FEATURES": "gui"
+        "ENABLE_AI_DENOISE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "gui;ai-denoise"
       }
     },
 
@@ -179,6 +187,8 @@
       "inherits": "android-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "ENABLE_AI_DENOISE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "ai-denoise",
         "ANDROID_ABI": "arm64-v8a"
       }
     },
@@ -188,6 +198,8 @@
       "inherits": "android-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_AI_DENOISE": "ON",
+        "VCPKG_MANIFEST_FEATURES": "ai-denoise",
         "ANDROID_ABI": "arm64-v8a"
       }
     }
