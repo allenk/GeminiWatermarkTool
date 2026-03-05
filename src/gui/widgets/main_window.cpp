@@ -683,11 +683,11 @@ void MainWindow::render_control_panel() {
                     "Clean up residual artifacts after watermark removal.\n"
                     "Most effective on resized images where interpolation\n"
                     "breaks the exact alpha-pixel relationship.\n\n"
+#ifdef GWT_HAS_AI_DENOISE
+                    "AI Denoise: FDnCNN neural network (recommended)\n"
+#endif
                     "NS / TELEA: OpenCV inpaint (edge reconstruction)\n"
                     "Soft Inpaint: Gradient-guided Gaussian blur"
-#ifdef GWT_HAS_AI_DENOISE
-                    "\nAI Denoise: FDnCNN neural network (GPU accelerated)"
-#endif
                 );
             }
 
@@ -712,6 +712,7 @@ void MainWindow::render_control_panel() {
 
                 ImGui::SetNextItemWidth(-1);
                 if (ImGui::Combo("##inpaint_method", &method_idx, methods, method_count)) {
+                    InpaintMethod prev_method = inpaint.method;
                     switch (method_idx) {
                         case 0:  inpaint.method = InpaintMethod::NS;       break;
                         case 1:  inpaint.method = InpaintMethod::TELEA;    break;
@@ -721,21 +722,30 @@ void MainWindow::render_control_panel() {
 #endif
                         default: inpaint.method = InpaintMethod::NS;       break;
                     }
+
+#ifdef GWT_HAS_AI_DENOISE
+                    // Clamp strength to 100% when switching from AI to non-AI
+                    if (prev_method == InpaintMethod::AI_DENOISE &&
+                        inpaint.method != InpaintMethod::AI_DENOISE &&
+                        inpaint.strength > 1.0f) {
+                        inpaint.strength = 1.0f;
+                    }
+#endif
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip(
-                        "NS: Navier-Stokes fluid dynamics (recommended)\n"
+#ifdef GWT_HAS_AI_DENOISE
+                        "AI Denoise: FDnCNN neural network (recommended)\n"
+                        "  GPU-accelerated, best quality\n"
+#endif
+                        "NS: Navier-Stokes fluid dynamics\n"
                         "TELEA: Fast marching method\n"
                         "Soft Inpaint: Gradient-guided Gaussian blur\n"
                         "  (smoother but may blur fine details)"
-#ifdef GWT_HAS_AI_DENOISE
-                        "\nAI Denoise: FDnCNN residual learning\n"
-                        "  (neural network, best quality)"
-#endif
                     );
                 }
 
-                // Strength slider (always shown)
+                // Strength slider (range depends on method)
                 int strength_pct = static_cast<int>(inpaint.strength * 100.0f + 0.5f);
                 strength_pct = ((strength_pct + 2) / 5) * 5;
 

@@ -30,6 +30,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
@@ -63,6 +65,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     - name: Install dependencies
       run: |
@@ -82,7 +86,8 @@ jobs:
           libwayland-dev \
           libxkbcommon-dev \
           wayland-protocols \
-          libltdl-dev
+          libltdl-dev \
+          libvulkan-dev
 
     - name: Setup vcpkg
       uses: lukka/run-vcpkg@v11
@@ -111,6 +116,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     - name: Install dependencies
       run: brew list ninja || brew install ninja
@@ -125,7 +132,8 @@ jobs:
         cmake -B build-x64 -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_GUI=ON \
-          -DVCPKG_MANIFEST_FEATURES=gui \
+          -DENABLE_AI_DENOISE=ON \
+          -DVCPKG_MANIFEST_FEATURES="gui;ai-denoise" \
           -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
           -DVCPKG_TARGET_TRIPLET=x64-osx \
           -DCMAKE_OSX_ARCHITECTURES=x86_64
@@ -136,7 +144,8 @@ jobs:
         cmake -B build-arm64 -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_GUI=ON \
-          -DVCPKG_MANIFEST_FEATURES=gui \
+          -DENABLE_AI_DENOISE=ON \
+          -DVCPKG_MANIFEST_FEATURES="gui;ai-denoise" \
           -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
           -DVCPKG_TARGET_TRIPLET=arm64-osx \
           -DCMAKE_OSX_ARCHITECTURES=arm64
@@ -230,4 +239,3 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

@@ -36,8 +36,11 @@ AppController::AppController(IRenderBackend& backend)
     // Initialize AI denoiser (Vulkan GPU with CPU fallback)
     m_denoiser = std::make_unique<NcnnDenoiser>();
     if (!m_denoiser->initialize()) {
-        spdlog::warn("AI denoiser initialization failed, feature disabled");
+        spdlog::warn("AI denoiser initialization failed, falling back to NS inpaint");
         m_denoiser.reset();
+        // Fall back to NS since AI is unavailable
+        m_state.process_options.inpaint.method = InpaintMethod::NS;
+        m_state.process_options.inpaint.strength = 0.85f;
     }
 #endif
 

@@ -206,12 +206,15 @@ struct ImageState {
  */
 struct InpaintOptions {
     bool enabled{true};                              // Enable inpaint cleanup
-    float strength{0.85f};                           // Blend: 0=reverse-only, 1=full effect
-    InpaintMethod method{InpaintMethod::NS};          // Cleanup method (NS default)
     int inpaint_radius{10};                           // Blur/inpaint radius (NS/TELEA/GAUSSIAN)
 
 #ifdef GWT_HAS_AI_DENOISE
+    float strength{1.2f};                            // Blend: 0=reverse-only (AI allows >1.0)
+    InpaintMethod method{InpaintMethod::AI_DENOISE};  // Default: AI when available
     float ai_sigma{50.0f};                           // AI denoise: noise level 0-150
+#else
+    float strength{0.85f};                           // Blend: 0=reverse-only, 1=full effect
+    InpaintMethod method{InpaintMethod::NS};          // Default: NS without AI
 #endif
 
     static constexpr int kPadding = 32;              // Context padding (covers weight spread)
