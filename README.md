@@ -354,6 +354,55 @@ Supported formats: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`
 | `--version` | `-V` | Show version information |
 | `--help` | `-h` | Show help message |
 
+### Advanced Options (v0.2.5)
+
+| Option | Description |
+|--------|-------------|
+| `--region <spec>` | Explicit watermark region (see Region Syntax below) |
+| `--fallback-region <spec>` | Search region when standard detection fails |
+| `--snap` | Enable multi-scale snap search within region |
+| `--snap-max-size <N>` | Max snap search size, 32–320 (default: 160) |
+| `--snap-threshold <N>` | Min snap confidence to accept, 0.0–1.0 (default: 0.60) |
+| `--denoise <method>` | Cleanup after removal: `ai`, `ns`, `telea`, `soft`, `off` |
+| `--sigma <N>` | AI denoise noise level, 1–150 (default: 50) |
+| `--strength <N>` | Denoise strength %, 0–300 (default: 120 for AI, 85 for others) |
+| `--radius <N>` | Inpaint radius for NS/TELEA/Soft, 1–25 (default: 10) |
+
+**Region syntax:**
+
+| Format | Description |
+|--------|-------------|
+| `x,y,w,h` | Absolute coordinates |
+| `br:mx,my,w,h` | Bottom-right corner (margin_x, margin_y, width, height) |
+| `bl:mx,my,w,h` | Bottom-left corner |
+| `tr:mx,my,w,h` | Top-right corner |
+| `tl:mx,my,w,h` | Top-left (same as absolute) |
+| `br:auto` | Use Gemini default position based on image size |
+
+**Examples:**
+
+```bash
+# Standard removal with AI denoise cleanup
+GeminiWatermarkTool -i input.jpg -o clean.jpg --denoise ai
+
+# Batch with AI denoise (all files)
+GeminiWatermarkTool -i ./photos/ -o ./clean/ --denoise ai
+
+# Fallback for images that fail detection: search bottom-right area with snap
+GeminiWatermarkTool -i ./photos/ -o ./clean/ \
+    --fallback-region br:auto --snap --denoise ai
+
+# Resized watermarks: expand snap search to 320px
+GeminiWatermarkTool -i ./photos/ -o ./clean/ \
+    --fallback-region br:80,80,200,200 --snap --snap-max-size 320 --denoise ai
+
+# Force process at explicit region (all images have watermark at same spot)
+GeminiWatermarkTool -i ./photos/ -o ./clean/ \
+    --force --region 500,800,160,160 --snap --denoise ai --sigma 75
+```
+
+> **Note:** When no `--denoise` is specified, the CLI behaves identically to previous versions (no cleanup pass). All existing scripts and agent integrations continue to work unchanged.
+
 ## Watermark Size Detection
 
 The tool automatically detects the appropriate watermark size based on image dimensions:
