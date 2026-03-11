@@ -23,15 +23,25 @@
 > **Removing Gemini AI Watermarks: A Deep Dive into Reverse Alpha Blending**  
 > https://allenkuo.medium.com/removing-gemini-ai-watermarks-a-deep-dive-into-reverse-alpha-blending-bbbd83af2a3f
 
-Gemini Watermark Tool removes Gemini visible watermarks from images using **mathematically accurate reverse alpha blending**. Available as both a **command-line tool** and a **graphical desktop application**.
+Gemini Watermark Tool removes Gemini visible watermarks from images using a **mathematically accurate reverse alpha blending algorithm**.  
+Unlike many tools that rely entirely on generative inpainting, this project focuses on **deterministic reconstruction** combined with lightweight AI-assisted cleanup.
 
-- **Fast & offline**: single executable, **zero dependencies**
-- **GUI + CLI**: desktop app with drag & drop, or command-line for automation
-- **AI Denoise**: GPU-accelerated FDnCNN neural network for residual cleanup (NCNN + Vulkan)
-- **Smart detection**: three-stage NCC algorithm with confidence scoring — skip non-watermarked images automatically
-- **Batch processing**: process entire directories with thumbnail preview and progress tracking
+The design philosophy is simple:  
+**small, standalone, fast, and reliable.**
+
+The entire toolkit is distributed as a **portable executable with zero runtime dependencies**, making it easy to install, automate, and integrate into scripts or pipelines without complex setup.
+
+Key capabilities include:
+
+- **Fast & offline**: single executable, **no external services or dependencies**
+- **Standalone & portable**: small footprint, easy to deploy and use anywhere
+- **GUI + CLI**: drag-and-drop desktop workflow or command-line automation
+- **Deterministic watermark reconstruction**: reverse alpha blending algorithm designed specifically for Gemini watermark overlays
+- **AI-assisted cleanup**: optional GPU-accelerated FDnCNN denoise (NCNN + Vulkan) for residual artifacts
+- **Smart detection**: three-stage NCC detection with confidence scoring to automatically skip non-watermarked images
+- **Batch processing**: process entire directories with preview and progress tracking
 - **Cross-platform**: Windows / Linux / macOS / Android (CLI)
-- **AI Agent ready**: [Claude Code Skill + MCP Server](https://github.com/allenk/gwt-integrations) for automated workflows
+- **AI Agent ready**: [Claude Code Skill + MCP Server](https://github.com/allenk/gwt-integrations) for automation and agent workflows
 
 ## 🖥️ GUI Application — Major Update
 
@@ -42,9 +52,25 @@ The desktop GUI provides an interactive workflow for both single-image and batch
 
 ![GUI Demo](artworks/gui_demo.png)
 
+## AI Agent - Integration (New in v0.2.5)
+GeminiWatermarkTool can now be integrated into AI-agent workflows via MCP server and Claude Code skills.
+This enables automated watermark processing inside agent-based pipelines.
+
+> **[gwt-integrations](https://github.com/allenk/gwt-integrations)** — Claude Code Skill + MCP Server for GeminiWatermarkTool
+
+Enable AI coding agents (Claude Code, Cursor, Windsurf, etc.) to use GeminiWatermarkTool directly:
+
+| Component | Description |
+|-----------|-------------|
+| **Claude Code Skill** | Teaches AI agents GWT's full CLI syntax, region/snap/denoise options, and best practices — agents can remove watermarks from images without manual guidance |
+| **MCP Server** | Exposes GWT as 4 tools via [Model Context Protocol](https://modelcontextprotocol.io/) — `remove_watermark`, `detect_watermark`, `batch_process`, `get_tool_info` — any MCP-compatible client can call them |
+| **install.py** | Cross-platform installer (stdlib only) — auto-detects GWT binary, configures Claude Code skill and MCP server in one command |
+
+
+![AI MCP Skill](artworks/gwt-mcp.gif)
+
 ### Single Image Editing
 
-<!-- TODO: Replace with actual GIF -->
 ![GUI Single Image](artworks/gui_single.gif)
 
 - Drag & drop or open any supported image
@@ -711,18 +737,9 @@ MIT License
 ## Author
 
 **Allen Kuo** ([@allenk](https://github.com/allenk))
-
-## Integrations — AI Agent & MCP Support
-
-> **[gwt-integrations](https://github.com/allenk/gwt-integrations)** — Claude Code Skill + MCP Server for GeminiWatermarkTool
-
-Enable AI coding agents (Claude Code, Cursor, Windsurf, etc.) to use GeminiWatermarkTool directly:
-
-| Component | Description |
-|-----------|-------------|
-| **Claude Code Skill** | Teaches AI agents GWT's full CLI syntax, region/snap/denoise options, and best practices — agents can remove watermarks from images without manual guidance |
-| **MCP Server** | Exposes GWT as 4 tools via [Model Context Protocol](https://modelcontextprotocol.io/) — `remove_watermark`, `detect_watermark`, `batch_process`, `get_tool_info` — any MCP-compatible client can call them |
-| **install.py** | Cross-platform installer (stdlib only) — auto-detects GWT binary, configures Claude Code skill and MCP server in one command |
+- GitHub: https://github.com/allenk  
+- LinkedIn: https://www.linkedin.com/in/allen-kuo-7b513a45/
+- Medium: https://allenkuo.medium.com
 
 **Quick start:**
 
