@@ -9,6 +9,8 @@
 
 📢 **Now available: [Veo Video Watermark Remover](https://github.com/allenk/VeoWatermarkRemover)** — remove Google Veo "Veo" text watermarks from videos, same reverse alpha blending engine. Demo build (Win x64).
 
+▶️ **Watch: [GeminiWatermarkTool — Quick Start & Feature Overview](https://www.youtube.com/watch?v=baP8rGWarNM)**
+
 > ## 📌 Original Author Notice (Reverse Alpha Blending)
 > I am the original author of **GeminiWatermarkTool** and the reverse **alpha-blending** restoration method used to remove the visible "Gemini" watermark while preserving image detail (Allen Kuo / allenk).
 >
