@@ -508,7 +508,7 @@ Make sure the output path is writable and the file isn't open in another program
 
 - Only removes **Gemini visible watermarks** (the semi-transparent logo in bottom-right)
 - Does **NOT** remove **SynthID invisible watermarks** — [see why](report/synthid_research.md)
-- Designed for Gemini's current watermark pattern (as of 2025)
+- Designed for Gemini's current watermark pattern (as of 2026)
 
 ---
 
