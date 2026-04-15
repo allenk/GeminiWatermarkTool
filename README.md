@@ -416,7 +416,8 @@ Supported formats: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`
 | `--region <spec>` | Explicit watermark region (see Region Syntax below) |
 | `--fallback-region <spec>` | Search region when standard detection fails |
 | `--snap` | Enable multi-scale snap search within region |
-| `--snap-max-size <N>` | Max snap search size, 16–320 (default: 160) |
+| `--snap-min-size <N>` | Min snap search size, 8–64 (default: 16) |
+| `--snap-max-size <N>` | Max snap search size, 32–320 (default: 160) |
 | `--snap-threshold <N>` | Min snap confidence to accept, 0.0–1.0 (default: 0.60) |
 | `--denoise <method>` | Cleanup after removal: `ai`, `ns`, `telea`, `soft`, `off` |
 | `--sigma <N>` | AI denoise noise level, 1–150 (default: 50) |

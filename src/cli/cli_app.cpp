@@ -311,6 +311,7 @@ void process_single_advanced(
     const std::string& region_str,
     const std::string& fallback_region_str,
     bool use_snap,
+    int snap_min_size,
     int snap_max_size,
     float snap_threshold,
     const DenoiseConfig& denoise_cfg,
@@ -402,8 +403,9 @@ void process_single_advanced(
                     // Snap search within fallback region
                     int max_sz = std::min(snap_max_size,
                                           std::min(fb_region.width, fb_region.height));
+                    int min_sz = std::min(snap_min_size, max_sz);
                     GuidedDetectionResult snap = engine.guided_detect(
-                        image, fb_region, nullptr, 16, max_sz);
+                        image, fb_region, nullptr, min_sz, max_sz);
 
                     if (snap.found && (snap.confidence >= snap_threshold || force_process)) {
                         wm_region = snap.match_rect;
@@ -450,8 +452,9 @@ void process_single_advanced(
         if (detected && !explicit_region.empty() && use_snap) {
             int max_sz = std::min(snap_max_size,
                                   std::min(explicit_region.width, explicit_region.height));
+            int min_sz = std::min(snap_min_size, max_sz);
             GuidedDetectionResult snap = engine.guided_detect(
-                image, explicit_region, nullptr, 16, max_sz);
+                image, explicit_region, nullptr, min_sz, max_sz);
 
             if (snap.found && snap.confidence >= snap_threshold) {
                 wm_region = snap.match_rect;
@@ -762,6 +765,11 @@ int run(int argc, char** argv) {
     app.add_flag("--snap", use_snap,
                  "Enable multi-scale snap search within region/fallback-region");
 
+    int snap_min_size = 16;
+    app.add_option("--snap-min-size", snap_min_size,
+                   "Minimum watermark size for snap search (default: 16)")
+        ->check(CLI::Range(8, 64));
+
     int snap_max_size = 160;
     app.add_option("--snap-max-size", snap_max_size,
                    "Maximum watermark size for snap search (default: 160)")
@@ -793,6 +801,14 @@ int run(int argc, char** argv) {
 
     // Parse arguments
     CLI11_PARSE(app, argc, argv);
+
+    if (snap_min_size > snap_max_size) {
+        fmt::print(fmt::fg(fmt::color::red), "[ERROR] ");
+        fmt::print("--snap-min-size ({}) must be <= --snap-max-size ({})\n",
+                   snap_min_size, snap_max_size);
+        return 1;
+    }
+
 
     // Print banner after parsing (so --help doesn't show banner)
     if (should_show_banner(banner_flag)) {
@@ -861,8 +877,9 @@ int run(int argc, char** argv) {
         if (!fallback_region_str.empty())
             fmt::print(fmt::fg(fmt::color::gray), "Fallback: {}\n", fallback_region_str);
         if (use_snap)
-            fmt::print(fmt::fg(fmt::color::gray), "Snap: enabled (max {}px, threshold {:.0f}%)\n",
-                       snap_max_size, snap_threshold * 100.0f);
+            fmt::print(fmt::fg(fmt::color::gray),
+                       "Snap: enabled (size {}-{}px, threshold {:.0f}%)\n",
+                       snap_min_size, snap_max_size, snap_threshold * 100.0f);
         if (denoise_cfg.enabled) {
             const char* method_name = "NS";
 #ifdef GWT_HAS_AI_DENOISE
@@ -938,7 +955,7 @@ int run(int argc, char** argv) {
                         entry.path(), out_file, engine, force_size,
                         use_detection, detection_threshold, force_process,
                         region_str, fallback_region_str,
-                        use_snap, snap_max_size, snap_threshold, denoise_cfg,
+                        use_snap, snap_min_size, snap_max_size, snap_threshold, denoise_cfg,
 #ifdef GWT_HAS_AI_DENOISE
                         denoiser.get(),
 #endif
@@ -956,7 +973,7 @@ int run(int argc, char** argv) {
                     input, output, engine, force_size,
                     use_detection, detection_threshold, force_process,
                     region_str, fallback_region_str,
-                    use_snap, snap_max_size, snap_threshold, denoise_cfg,
+                    use_snap, snap_min_size, snap_max_size, snap_threshold, denoise_cfg,
 #ifdef GWT_HAS_AI_DENOISE
                     denoiser.get(),
 #endif
