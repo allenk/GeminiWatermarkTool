@@ -52,8 +52,12 @@ jobs:
         cmake --preset windows-x64-Release
         cmake --build --preset windows-x64-Release
 
-    - name: Test binary
+    - name: Test binary (--version)
       run: ./out/build/windows-x64-Release/GeminiWatermarkTool.exe --version
+
+    - name: Test binary (AI denoise pipeline)
+      shell: bash
+      run: bash scripts/ci_smoke_ai_denoise.sh ./out/build/windows-x64-Release/GeminiWatermarkTool.exe
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -103,8 +107,11 @@ jobs:
         cmake --preset linux-x64-Release
         cmake --build --preset linux-x64-Release
 
-    - name: Test binary
+    - name: Test binary (--version)
       run: ./out/build/linux-x64-Release/GeminiWatermarkTool --version
+
+    - name: Test binary (AI denoise pipeline)
+      run: bash scripts/ci_smoke_ai_denoise.sh ./out/build/linux-x64-Release/GeminiWatermarkTool
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -169,8 +176,11 @@ jobs:
         mv dist/GeminiWatermarkTool .
         rmdir dist
 
-    - name: Test binary
+    - name: Test binary (--version)
       run: ./GeminiWatermarkTool --version
+
+    - name: Test binary (AI denoise pipeline)
+      run: bash scripts/ci_smoke_ai_denoise.sh ./GeminiWatermarkTool
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -233,9 +243,13 @@ jobs:
           echo "--- size after UPX ---"
           ls -lh gwt-mini.exe
 
-      - name: Smoke test
+      - name: Smoke test (--version)
         shell: bash
         run: ./gwt-mini.exe --version
+
+      - name: Smoke test (AI denoise pipeline)
+        shell: bash
+        run: bash scripts/ci_smoke_ai_denoise.sh ./gwt-mini.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -284,8 +298,11 @@ jobs:
           echo "--- size after UPX ---"
           ls -lh gwt-mini
 
-      - name: Smoke test
+      - name: Smoke test (--version)
         run: ./gwt-mini --version
+
+      - name: Smoke test (AI denoise pipeline)
+        run: bash scripts/ci_smoke_ai_denoise.sh ./gwt-mini
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -346,8 +363,11 @@ jobs:
           echo "--- final size (no UPX on macOS) ---"
           ls -lh gwt-mini
 
-      - name: Smoke test
+      - name: Smoke test (--version)
         run: ./gwt-mini --version
+
+      - name: Smoke test (AI denoise pipeline)
+        run: bash scripts/ci_smoke_ai_denoise.sh ./gwt-mini
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

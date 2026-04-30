@@ -28,6 +28,13 @@
 #include <algorithm>
 #include <chrono>
 
+#if defined(_WIN32)
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#else
+#  include <dlfcn.h>
+#endif
+
 // Embedded model data (defined in ai_denoise_model.cpp)
 namespace gwt::ai_model {
     const unsigned char* param_data();
@@ -35,6 +42,35 @@ namespace gwt::ai_model {
 }
 
 namespace gwt {
+
+namespace {
+
+// Probe whether the Vulkan loader is dynamically loadable on this system.
+// NCNN's internal simplevk dlopens the loader by these exact names; if the
+// probe fails the loader is absent and ncnn::create_gpu_instance() will
+// dispatch through uninitialised function pointers and crash (SIGBUS on
+// macOS Apple Silicon, observed in issues #30 / #31).
+bool vulkan_loader_present() {
+#if defined(_WIN32)
+    HMODULE h = LoadLibraryA("vulkan-1.dll");
+    if (h) { FreeLibrary(h); return true; }
+    return false;
+#elif defined(__APPLE__)
+    // macOS does not ship a Vulkan loader. The user must install MoltenVK
+    // via the LunarG Vulkan SDK (or it must be bundled into the app).
+    void* h = dlopen("libvulkan.1.dylib", RTLD_LAZY | RTLD_LOCAL);
+    if (!h) h = dlopen("libvulkan.dylib", RTLD_LAZY | RTLD_LOCAL);
+    if (h) { dlclose(h); return true; }
+    return false;
+#else
+    void* h = dlopen("libvulkan.so.1", RTLD_LAZY | RTLD_LOCAL);
+    if (!h) h = dlopen("libvulkan.so", RTLD_LAZY | RTLD_LOCAL);
+    if (h) { dlclose(h); return true; }
+    return false;
+#endif
+}
+
+}  // namespace
 
 // Blob indices from binary param (string names not available in binary format)
 // These correspond to model_core.id.h: BLOB_in0 = 0, BLOB_out0 = 20
@@ -292,7 +328,22 @@ bool NcnnDenoiser::initialize() {
         return true;
     }
 
-    ncnn::create_gpu_instance();
+    // Probe the Vulkan loader BEFORE calling into NCNN. On systems without
+    // it (macOS without MoltenVK is the common case), NCNN's
+    // create_gpu_instance() dispatches through uninitialised function
+    // pointers and crashes -- see issues #30 and #31.
+    const bool vulkan_available = vulkan_loader_present();
+    if (vulkan_available) {
+        ncnn::create_gpu_instance();
+    } else {
+#if defined(__APPLE__)
+        spdlog::info("NcnnDenoiser: Vulkan loader unavailable on macOS "
+                     "(install MoltenVK or the LunarG Vulkan SDK for GPU "
+                     "acceleration); falling back to CPU");
+#else
+        spdlog::info("NcnnDenoiser: Vulkan loader unavailable, falling back to CPU");
+#endif
+    }
 
     // FP16 storage for efficiency, FP32 compute for accuracy
     m_impl->net.opt.use_fp16_packed = true;
@@ -301,7 +352,7 @@ bool NcnnDenoiser::initialize() {
     m_impl->net.opt.use_packing_layout = true;
 
     // Try GPU first, fall back to CPU
-    m_impl->gpu_enabled = m_impl->init_gpu();
+    m_impl->gpu_enabled = vulkan_available && m_impl->init_gpu();
     if (!m_impl->gpu_enabled) {
         m_impl->init_cpu();
     }
