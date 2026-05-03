@@ -265,37 +265,35 @@ GeminiWatermarkTool reverses the blending equation to recover pixels, keeping te
 
 ### What is SynthID?
 
-SynthID is Google DeepMind's **invisible watermarking** technology embedded in AI-generated images. Unlike visible watermarks:
+SynthID is Google DeepMind's **invisible watermarking** technology, deployed across Google services including Gemini, Imagen, Lyria, and Veo.
+
+It is best understood as a **family of technologies** rather than a single algorithm — text, image, audio, and video each use different underlying mechanisms. For images specifically, according to Gowal et al. (2025), SynthID-Image is a **post-hoc, model-independent encoder-decoder approach**: the watermark is added by a trained encoder after the image has been generated.
+
+Key properties:
 
 - **Invisible** to human eyes
-- **Integrated** during generation (not added afterward)  
-- **Extremely robust** against common image manipulations
+- **Robust** against common image transformations (compression, noise, rotation, color changes, etc.)
+- **Adversarially trained** to resist most simple removal attacks
 
-### Why Can't SynthID Be Removed?
+### Why Can't SynthID Be Removed Easily?
 
-Our extensive research revealed a fundamental truth:
+Even though the watermark is technically "added" by the encoder, the encoder is a deep neural network trained adversarially. The perturbation it adds is distributed in a high-dimensional learned representation, not as a fixed pixel pattern. As a result:
 
-> **SynthID is not a watermark added to an image — it IS the image.**
+- Random or symmetric attacks tend to be orthogonal to the encoder's learned direction
+- Most common transformations were already part of the encoder's training augmentation
+- The watermark is entangled with image features rather than localized
 
-SynthID operates as a **Statistical Bias** during generation. Every pixel choice is subtly influenced by Google's private key using **Tournament Sampling**. The watermark and visual content are **inseparably bound**.
+In practice, removing SynthID without significantly degrading image quality is **currently not feasible** with publicly available tools.
 
-```
-Visible Watermark:  Image + Overlay = Result     ✓ Removable (this tool)
-SynthID:            Biased Generation = Image    ✗ Cannot separate
-```
-
-### Potential Removal Approaches
+### Removal Approaches Studied
 
 | Approach | Trade-off | Feasibility |
 |----------|-----------|-------------|
-| **Extreme Quantization** (binarization) | Image becomes unusable skeleton | ✓ Works |
-| **AI Repaint** (Stable Diffusion, etc.) | Style changes significantly | ✓ Works |
-| **White-box Adversarial Attack** | Requires detector model | ✗ Not available |
-
-**Conclusion**: Removing SynthID while preserving image quality is **currently not feasible**.
+| **Extreme Quantization** (binarization) | Image becomes unusable skeleton | Works |
+| **AI Re-generation** (Stable Diffusion, etc.) | Style and details change | Works |
+| **Adversarial / Surrogate Attacks** | Requires decoder access or paired data | Not currently practical |
 
 📄 **[Full SynthID Research Report →](report/synthid_research.md)**
-- [SynthID Image Watermark Research Report](https://allenkuo.medium.com/synthid-image-watermark-research-report-9b864b19f9cf)
 
 ---
 
